@@ -1,0 +1,159 @@
+@import url('https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,100..1000;1,9..40,100..1000&family=Lora:ital,wght@0,400..700;1,400..700&family=IBM+Plex+Mono:ital,wght@0,100..700;1,100..700&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    /* ⚠️ AGENT MUST REPLACE: These are placeholder colors. You MUST define a custom palette before writing components. */
+    /* The template uses distinctive placeholder colors to force customization - do NOT use these in production! */
+    
+    /* 
+     * EXAMPLE PALETTES (use as inspiration, replace with your own):
+     * 
+     * Modern SaaS (Business/Enterprise):
+     * --primary: 217 91% 60%;        (Blue #2563EB)
+     * --accent: 217 91% 65%;         (Lighter blue #3B82F6)
+     * 
+     * Bold Tech (Startups/Developer Tools):
+     * --primary: 262 83% 58%;        (Purple #8B5CF6)
+     * --accent: 262 83% 68%;         (Lighter purple #A855F7)
+     * 
+     * Quantum Rose (Creative/Design):
+     * --primary: 330 81% 50%;        (Pink #E6067A)
+     * --accent: 330 81% 70%;         (Lighter pink #F472B6)
+     * 
+     * Ocean Depth (Calm/Professional):
+     * --primary: 200 98% 39%;        (Deep teal #0D9488)
+     * --accent: 200 98% 50%;         (Teal #14B8A6)
+     * 
+     * Sunset Warmth (Friendly/Welcoming):
+     * --primary: 24 95% 53%;         (Orange #F97316)
+     * --accent: 24 95% 63%;          (Lighter orange #FB923C)
+     */
+    
+    /* Colors - REPLACE ALL VALUES BELOW with your custom palette */
+    --background: 0 0% 100%;
+    --foreground: 174 84% 10%;
+    --card: 0 0% 100%;
+    --card-foreground: 174 84% 10%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 174 84% 10%;
+    /* Ocean Teal Primary */
+    --primary: 174 84% 31%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 170 86% 97%;
+    --secondary-foreground: 174 84% 20%;
+    --muted: 170 30% 96%;
+    --muted-foreground: 174 30% 40%;
+    /* Accent Teal */
+    --accent: 172 66% 50%;
+    --accent-foreground: 174 84% 10%;
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 174 20% 90%;
+    --input: 174 20% 90%;
+    --ring: 174 84% 31%;
+
+    /* Charts */
+    --chart-1: 174 84% 31%;
+    --chart-2: 172 66% 50%;
+    --chart-3: 160 60% 45%;
+    --chart-4: 180 70% 40%;
+    --chart-5: 150 80% 35%;
+
+    /* Sidebar */
+    --sidebar: 170 86% 97%;
+    --sidebar-foreground: 174 84% 20%;
+    --sidebar-primary: 174 84% 31%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 172 66% 50%;
+    --sidebar-accent-foreground: 174 84% 10%;
+    --sidebar-border: 174 20% 90%;
+    --sidebar-ring: 174 84% 31%;
+
+    /* Fonts */
+    --font-sans: 'Geist', 'Inter', sans-serif;
+    --font-serif: 'Lora', serif;
+    --font-mono: 'IBM Plex Mono', monospace;
+
+    /* Shadows */
+    --shadow-2xs: 0px 4px 8px -1px hsl(0 0% 0% / 0.05);
+    --shadow-xs: 0px 4px 8px -1px hsl(0 0% 0% / 0.05);
+    --shadow-sm: 0px 4px 8px -1px hsl(0 0% 0% / 0.10), 0px 1px 2px -2px hsl(0 0% 0% / 0.10);
+    --shadow: 0px 4px 8px -1px hsl(0 0% 0% / 0.10), 0px 1px 2px -2px hsl(0 0% 0% / 0.10);
+    --shadow-md: 0px 4px 8px -1px hsl(0 0% 0% / 0.10), 0px 2px 4px -2px hsl(0 0% 0% / 0.10);
+    --shadow-lg: 0px 4px 8px -1px hsl(0 0% 0% / 0.10), 0px 4px 6px -2px hsl(0 0% 0% / 0.10);
+    --shadow-xl: 0px 4px 8px -1px hsl(0 0% 0% / 0.10), 0px 8px 10px -2px hsl(0 0% 0% / 0.10);
+    --shadow-2xl: 0px 4px 8px -1px hsl(0 0% 0% / 0.25);
+
+    /* Misc */
+    --tracking-normal: 0em;
+    --spacing: 0.25rem;
+    --radius: 0.5rem;
+  }
+
+  .dark {
+    --background: 178 84% 5%;
+    --foreground: 170 86% 97%;
+    --card: 178 84% 8%;
+    --card-foreground: 170 86% 97%;
+    --popover: 178 84% 8%;
+    --popover-foreground: 170 86% 97%;
+    --primary: 174 84% 31%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 178 84% 10%;
+    --secondary-foreground: 170 86% 97%;
+    --muted: 178 84% 12%;
+    --muted-foreground: 174 30% 60%;
+    --accent: 172 66% 50%;
+    --accent-foreground: 178 84% 5%;
+    --destructive: 0 62% 30%;
+    --destructive-foreground: 170 86% 97%;
+    --border: 178 84% 15%;
+    --input: 178 84% 15%;
+    --ring: 174 84% 31%;
+
+    --chart-1: 174 84% 31%;
+    --chart-2: 172 66% 50%;
+    --chart-3: 160 60% 45%;
+    --chart-4: 180 70% 40%;
+    --chart-5: 150 80% 35%;
+
+    --sidebar: 178 84% 8%;
+    --sidebar-foreground: 170 86% 97%;
+    --sidebar-primary: 174 84% 31%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 172 66% 50%;
+    --sidebar-accent-foreground: 178 84% 5%;
+    --sidebar-border: 178 84% 15%;
+    --sidebar-ring: 174 84% 31%;
+  }
+
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground;
+    font-family: var(--font-sans), 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', sans-serif;
+    letter-spacing: var(--tracking-normal);
+  }
+}
+
+.animate-fade-in {
+  animation: fadeIn 0.3s ease-in-out;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
