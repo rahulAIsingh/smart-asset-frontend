@@ -31,6 +31,13 @@ const decisionBadgeClass: Record<string, string> = {
     rejected: 'bg-red-50 text-red-700 border-red-200',
     returned_for_info: 'bg-violet-50 text-violet-700 border-violet-200'
 }
+const actionSuccessText: Record<'approve' | 'reject' | 'return' | 'it_fulfill' | 'it_close', string> = {
+    approve: 'Request approved',
+    reject: 'Request rejected',
+    return: 'Request returned',
+    it_fulfill: 'Request fulfilled',
+    it_close: 'Request closed'
+}
 
 export function Approvals() {
     const { user } = useAuth()
@@ -140,7 +147,7 @@ export function Approvals() {
             } else {
                 await requestsClient.returnForInfo(req.id, { actorEmail: user.email, actorRole: role || 'user', comment: reason })
             }
-            toast.success(`Request ${action}d`)
+            toast.success(actionSuccessText[action])
             await load()
         } catch (error: any) {
             toast.error(error?.message || `Failed to ${action} request`)
@@ -157,10 +164,11 @@ export function Approvals() {
         try {
             if (action === 'fulfill') {
                 await requestsClient.itFulfill(req.id, { actorEmail: user.email, actorRole: role || 'support', comment: reason })
+                toast.success(actionSuccessText.it_fulfill)
             } else {
                 await requestsClient.itClose(req.id, { actorEmail: user.email, actorRole: role || 'support', comment: reason })
+                toast.success(actionSuccessText.it_close)
             }
-            toast.success(`Request ${action}ed`)
             await load()
         } catch (error: any) {
             toast.error(error?.message || `Failed to ${action}`)
@@ -398,7 +406,7 @@ export function Approvals() {
                                                             {req.status === 'pending_it_fulfillment' && canSeeAll ? (
                                             <>
                                                 <Button size="sm" onClick={() => openActionDialog(req, 'it_fulfill')}><ShieldCheck className="w-4 h-4 mr-1" />Fulfill</Button>
-                                                <Button size="sm" variant="outline" onClick={() => openActionDialog(req, 'it_close')}><CheckCircle2 className="w-4 h-4 mr-1" />Close</Button>
+                                                <Button size="sm" variant="outline" onClick={() => openActionDialog(req, 'it_close')}><CheckCircle2 className="w-4 h-4 mr-1" />Reject (No Stock)</Button>
                                             </>
                                         ) : (
                                             <>

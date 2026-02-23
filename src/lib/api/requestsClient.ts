@@ -159,6 +159,6 @@ export const requestsClient = {
   comment: (id: string, payload: RequestCommentPayload) => apiClient.post<any>(`/api/requests/${id}/comment`, payload),
   notify: (id: string, payload: NotifyPayload) => apiClient.post<any>(`/api/requests/${id}/notify`, payload),
   auditList: (payload: AuditListPayload) => apiClient.post<AssetRequestAudit[]>(`/api/requests/audit/list`, payload),
-  pendingMe: (email: string, role?: string) => apiClient.get<AssetRequest[]>(`/api/requests/pending/me?email=${encodeURIComponent(email)}&role=${encodeURIComponent(role || '')}`),
-  summaryMe: (email: string, role?: string) => apiClient.get<{ mine: number; pendingMine: number; pendingApprovals: number }>(`/api/requests/summary/me?email=${encodeURIComponent(email)}&role=${encodeURIComponent(role || '')}`)
+  pendingMe: (_email: string, role?: string) => apiClient.get<AssetRequest[]>(`/api/requests/pending/me?role=${encodeURIComponent(role || '')}`),
+  summaryMe: (_email: string, role?: string) => apiClient.get<{ mine: number; pendingMine: number; pendingApprovals: number }>(`/api/requests/summary/me?role=${encodeURIComponent(role || '')}`)
 }

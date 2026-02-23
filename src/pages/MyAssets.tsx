@@ -1,9 +1,10 @@
 import React, { useEffect, useMemo, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import {
     Package,
     AlertTriangle,
-    ArrowRightLeft,
     Clock,
+    CalendarDays,
     Ticket,
     FilePlus2,
     ShieldAlert,
@@ -12,7 +13,7 @@ import {
     Building2,
     Wrench
 } from 'lucide-react'
-import { blink } from '../lib/blink'
+import { dataClient } from '../lib/dataClient'
 import { useAuth } from '../hooks/useAuth'
 import { useCategories, ICON_MAP } from '../hooks/useCategories'
 import { useUserRole } from '../hooks/useUserRole'
@@ -32,7 +33,6 @@ const ENABLE_REQUEST_WORKFLOW = (import.meta.env.VITE_ENABLE_REQUEST_WORKFLOW ??
 type RequestFormState = {
     requestType: RequestType
     department: string
-    costCenter: string
     location: string
     businessJustification: string
     urgency: 'low' | 'medium' | 'high' | 'critical'
@@ -46,6 +46,8 @@ type RequestFormState = {
     incidentDate: string
     incidentLocation: string
     policeReportNumber: string
+    tempIssueDate: string
+    tempReturnDate: string
 }
 
 const REQUEST_TYPE_LABELS: Record<RequestType, string> = {
@@ -57,7 +59,7 @@ const REQUEST_TYPE_LABELS: Record<RequestType, string> = {
     loss_theft: 'Loss/Theft',
     damage: 'Damage',
     accessory_peripheral: 'Accessory/Peripheral',
-    temporary_loan: 'Temporary Loan'
+    temporary_loan: 'Temp Device Allocation'
 }
 
 const REQUEST_CATEGORY_OPTIONS = [
@@ -86,7 +88,6 @@ const REQUEST_STATUS_BADGE: Record<string, string> = {
 const INITIAL_FORM: RequestFormState = {
     requestType: 'new_asset',
     department: '',
-    costCenter: '',
     location: '',
     businessJustification: '',
     urgency: 'medium',
@@ -99,20 +100,26 @@ const INITIAL_FORM: RequestFormState = {
     destinationManagerEmail: '',
     incidentDate: '',
     incidentLocation: '',
-    policeReportNumber: ''
+    policeReportNumber: '',
+    tempIssueDate: '',
+    tempReturnDate: ''
 }
 
-export function MyAssets() {
+export function MyAssets({ initialTab = 'assets', requestOnly = false, historyOnly = false }: { initialTab?: 'assets' | 'tickets' | 'requests'; requestOnly?: boolean; historyOnly?: boolean }) {
+    const navigate = useNavigate()
     const { user } = useAuth()
     const { role, isAdmin, isSupport } = useUserRole()
     const { categories } = useCategories()
+    const normalizedRole = String(role || '').toLowerCase()
+    const hideRequestsFromMyAssets = normalizedRole === 'user' || normalizedRole === 'pm' || normalizedRole === 'support'
+    const showRequestsWorkspace = ENABLE_REQUEST_WORKFLOW && (requestOnly || !hideRequestsFromMyAssets)
 
     const [assets, setAssets] = useState<any[]>([])
     const [loading, setLoading] = useState(true)
     const [selectedAsset, setSelectedAsset] = useState<any>(null)
     const [isReportOpen, setIsReportOpen] = useState(false)
     const [myTickets, setMyTickets] = useState<any[]>([])
-    const [activeTab, setActiveTab] = useState('assets')
+    const [activeTab, setActiveTab] = useState<string>(requestOnly ? 'requests' : initialTab)
 
     const [users, setUsers] = useState<any[]>([])
     const [requests, setRequests] = useState<AssetRequest[]>([])
@@ -130,13 +137,23 @@ export function MyAssets() {
         }
     }, [user, role])
 
+    useEffect(() => {
+        setActiveTab(requestOnly ? 'requests' : initialTab)
+    }, [initialTab, requestOnly])
+
+    useEffect(() => {
+        if (!requestOnly && !showRequestsWorkspace && activeTab === 'requests') {
+            setActiveTab('assets')
+        }
+    }, [activeTab, requestOnly, showRequestsWorkspace])
+
     const fetchInitialData = async () => {
         try {
             setLoading(true)
             const [allAssets, allIssuances, allUsers] = await Promise.all([
-                blink.db.assets.list(),
-                blink.db.issuances.list({ orderBy: { issueDate: 'desc' } }),
-                blink.db.users.list()
+                dataClient.db.assets.list(),
+                dataClient.db.issuances.list({ orderBy: { issueDate: 'desc' } }),
+                dataClient.db.users.list()
             ])
 
             setUsers(allUsers || [])
@@ -219,9 +236,32 @@ export function MyAssets() {
         return <Icon className="w-5 h-5" />
     }
 
-    const approverCandidates = useMemo(() => {
-        return users.filter((u: any) => u.email)
-    }, [users])
+    const approverCandidates = useMemo(() => users.filter((u: any) => u.email), [users])
+    const pmApproverCandidates = useMemo(
+        () => approverCandidates.filter((u: any) => String(u.role || '').toLowerCase() === 'pm'),
+        [approverCandidates]
+    )
+    const bossApproverCandidates = useMemo(
+        () => approverCandidates.filter((u: any) => String(u.role || '').toLowerCase() === 'boss'),
+        [approverCandidates]
+    )
+
+    const resolveBossForPm = (pmEmail: string) => {
+        if (!pmEmail) return ''
+        const pmUser = approverCandidates.find((u: any) => String(u.email || '').toLowerCase() === pmEmail.toLowerCase())
+        const hintedBossEmail =
+            pmUser?.bossEmail ||
+            pmUser?.bossApproverEmail ||
+            pmUser?.managerEmail ||
+            pmUser?.reportingToEmail ||
+            ''
+        if (hintedBossEmail) {
+            const matched = bossApproverCandidates.find((u: any) => String(u.email || '').toLowerCase() === String(hintedBossEmail).toLowerCase())
+            if (matched?.email) return matched.email
+        }
+        if (bossApproverCandidates.length === 1) return bossApproverCandidates[0].email
+        return ''
+    }
 
     const resetRequestForm = () => {
         setRequestForm(prev => ({
@@ -229,9 +269,22 @@ export function MyAssets() {
             department: prev.department,
             location: prev.location,
             pmApproverEmail: prev.pmApproverEmail,
-            bossApproverEmail: prev.bossApproverEmail
+            bossApproverEmail: resolveBossForPm(prev.pmApproverEmail)
         }))
     }
+
+    useEffect(() => {
+        if (!requestForm.pmApproverEmail) {
+            if (requestForm.bossApproverEmail) {
+                setRequestForm(prev => ({ ...prev, bossApproverEmail: '' }))
+            }
+            return
+        }
+        const nextBoss = resolveBossForPm(requestForm.pmApproverEmail)
+        if (nextBoss !== requestForm.bossApproverEmail) {
+            setRequestForm(prev => ({ ...prev, bossApproverEmail: nextBoss }))
+        }
+    }, [requestForm.pmApproverEmail, approverCandidates.length])
 
     const submitRequest = async () => {
         if (!user?.email) return
@@ -240,21 +293,56 @@ export function MyAssets() {
             toast.error('Please fill all common required fields')
             return
         }
+        if (!requestForm.bossApproverEmail) {
+            toast.error('Boss approver is not mapped for selected PM')
+            return
+        }
 
         if ((requestForm.requestType === 'new_asset' || requestForm.requestType === 'upgrade') && !requestForm.requestedConfigurationJson.trim()) {
             toast.error('Configuration is required for new asset and upgrade requests')
             return
         }
 
+        if (requestForm.requestType === 'temporary_loan') {
+            if (!requestForm.tempIssueDate || !requestForm.tempReturnDate) {
+                toast.error('Issue date and return date are required for Temp Device Allocation')
+                return
+            }
+            const issueDate = new Date(`${requestForm.tempIssueDate}T00:00:00`)
+            const returnDate = new Date(`${requestForm.tempReturnDate}T00:00:00`)
+            if (returnDate < issueDate) {
+                toast.error('Return date must be after issue date')
+                return
+            }
+        }
+
         try {
             setSavingRequest(true)
-            await requestsClient.create({
+            const requestedConfigurationJson = (() => {
+                if (requestForm.requestType !== 'temporary_loan') {
+                    return requestForm.requestedConfigurationJson || undefined
+                }
+
+                const payload = {
+                    mode: 'temp_device_allocation',
+                    issueDate: requestForm.tempIssueDate,
+                    returnDate: requestForm.tempReturnDate,
+                    approvalFlow: 'standard_existing_workflow',
+                    notificationLog: {
+                        emailRequestedFor: [user.email, requestForm.pmApproverEmail],
+                        itAdminOverdueReturnAlert: true
+                    },
+                    notes: requestForm.requestedConfigurationJson?.trim() || undefined
+                }
+                return JSON.stringify(payload, null, 2)
+            })()
+
+            const created = await requestsClient.create({
                 requestType: requestForm.requestType,
                 requesterEmail: user.email,
                 requesterName: user.displayName || user.email.split('@')[0],
                 requesterUserId: user.id,
                 department: requestForm.department,
-                costCenter: requestForm.costCenter || undefined,
                 location: requestForm.location,
                 businessJustification: requestForm.businessJustification,
                 urgency: requestForm.requestType === 'loss_theft' ? 'critical' : requestForm.urgency,
@@ -264,16 +352,111 @@ export function MyAssets() {
                 destinationManagerEmail: requestForm.destinationManagerEmail || undefined,
                 relatedAssetId: requestForm.relatedAssetId || undefined,
                 requestedCategory: requestForm.requestedCategory || undefined,
-                requestedConfigurationJson: requestForm.requestedConfigurationJson || undefined,
+                requestedConfigurationJson,
                 incidentDate: requestForm.incidentDate ? new Date(requestForm.incidentDate).toISOString() : undefined,
                 incidentLocation: requestForm.incidentLocation || undefined,
                 policeReportNumber: requestForm.policeReportNumber || undefined
             })
+
+            if (requestForm.requestType === 'temporary_loan') {
+                const recipients = Array.from(new Set([user.email, requestForm.pmApproverEmail].filter(Boolean)))
+                const dueDateText = requestForm.tempReturnDate || '-'
+                await Promise.allSettled(
+                    recipients.map((recipient) =>
+                        requestsClient.notify(created.id, {
+                            recipientEmail: recipient,
+                            channel: 'email',
+                            type: 'temp_device_allocation_submitted',
+                            subject: `Temp Device Allocation Request ${created.requestNumber}`,
+                            html: `<p>Request <strong>${created.requestNumber}</strong> submitted.</p><p>Issue date: ${requestForm.tempIssueDate}</p><p>Return date: ${requestForm.tempReturnDate}</p><p>Reminder is planned after due date (${dueDateText}).</p>`
+                        })
+                    )
+                )
+
+                await requestsClient.notify(created.id, {
+                    recipientEmail: 'it.support@company.com',
+                    channel: 'in_app',
+                    type: 'temp_device_overdue_return_watch'
+                })
+            }
             toast.success('Request submitted and sent for PM approval')
             resetRequestForm()
             await fetchRequestData()
         } catch (error: any) {
             toast.error(error.message || 'Failed to submit request')
+        } finally {
+            setSavingRequest(false)
+        }
+    }
+
+    const handleReturnRequest = async (asset: any) => {
+        if (!ENABLE_REQUEST_WORKFLOW) {
+            toast.error('Request workflow is disabled')
+            return
+        }
+
+        if (!user?.email) return
+
+        const remark = (window.prompt('Add return remark for PM/Boss/IT approval flow', `Returning ${asset.name || 'asset'} to IT`) || '').trim()
+        if (!remark) {
+            toast.error('Return remark is required')
+            return
+        }
+
+        const normalizedRole = String(role || 'user').toLowerCase()
+        const pmApproverEmail = normalizedRole === 'pm'
+            ? user.email
+            : (requestForm.pmApproverEmail || pmApproverCandidates[0]?.email || '')
+        const bossApproverEmail =
+            requestForm.bossApproverEmail
+            || resolveBossForPm(pmApproverEmail)
+            || bossApproverCandidates[0]?.email
+            || ''
+
+        if (!pmApproverEmail) {
+            toast.error('PM approver is not configured')
+            return
+        }
+
+        if (!bossApproverEmail) {
+            toast.error('Boss approver is not configured')
+            return
+        }
+
+        const requesterProfile = approverCandidates.find((u: any) =>
+            String(u.email || '').toLowerCase() === user.email.toLowerCase()
+        )
+        const department = String(requesterProfile?.department || requestForm.department || 'General').trim()
+        const location = String(asset?.location || requestForm.location || user.email).trim()
+        const requestedCategory = String(asset?.category || requestForm.requestedCategory || 'hardware').trim()
+
+        try {
+            setSavingRequest(true)
+            const created = await requestsClient.create({
+                requestType: 'return',
+                requesterEmail: user.email,
+                requesterName: user.displayName || user.email.split('@')[0],
+                requesterUserId: user.id,
+                department,
+                location,
+                businessJustification: remark,
+                urgency: 'medium',
+                pmApproverEmail,
+                bossApproverEmail,
+                relatedAssetId: asset.id,
+                requestedCategory
+            })
+
+            if (normalizedRole === 'pm') {
+                toast.success(`Return request ${created.requestNumber} sent to Boss approval`)
+            } else {
+                toast.success(`Return request ${created.requestNumber} sent to PM approval`)
+            }
+
+            setActiveTab('requests')
+            await fetchRequestData()
+        } catch (error: any) {
+            toast.error(error.message || 'Failed to submit return request')
         } finally {
             setSavingRequest(false)
         }
@@ -305,7 +488,7 @@ export function MyAssets() {
 
     const handleItAction = async (request: AssetRequest, action: 'fulfill' | 'close') => {
         if (!user?.email) return
-        const reason = (window.prompt(`Enter note to ${action} this request`, action === 'fulfill' ? 'Fulfilled by IT' : 'Closed by IT') || '').trim()
+        const reason = (window.prompt(`Enter note to ${action} this request`, action === 'fulfill' ? 'Fulfilled by IT' : 'Rejected by IT (No Stock)') || '').trim()
         if (!reason) {
             toast.error('Reason is mandatory')
             return
@@ -317,7 +500,7 @@ export function MyAssets() {
                 toast.success('Request marked fulfilled')
             } else {
                 await requestsClient.itClose(request.id, { actorEmail: user.email, actorRole: role || 'support', comment: reason })
-                toast.success('Request closed')
+                toast.success('Request rejected by IT')
             }
             await fetchRequestData()
         } catch (error: any) {
@@ -331,6 +514,14 @@ export function MyAssets() {
         }
         return requests
     }, [requestFilter, requests])
+
+    const openRequestsView = () => {
+        if (showRequestsWorkspace) {
+            setActiveTab('requests')
+            return
+        }
+        navigate('/my-requests')
+    }
 
     return (
         <div className="space-y-8 max-w-6xl mx-auto">
@@ -356,15 +547,16 @@ export function MyAssets() {
                                         {activeTab === 'requests' && 'Create and track approval-chain requests.'}
                                     </CardDescription>
                                 </div>
-                                <TabsList className={`grid ${ENABLE_REQUEST_WORKFLOW ? 'w-[360px] grid-cols-3' : 'w-[240px] grid-cols-2'}`}>
-                                    <TabsTrigger value="assets">Assets</TabsTrigger>
-                                    <TabsTrigger value="tickets">Tickets</TabsTrigger>
-                                    {ENABLE_REQUEST_WORKFLOW && <TabsTrigger value="requests">Requests</TabsTrigger>}
+                                <TabsList className={`grid ${requestOnly ? 'w-[140px] grid-cols-1' : (showRequestsWorkspace ? 'w-[360px] grid-cols-3' : 'w-[240px] grid-cols-2')}`}>
+                                    {!requestOnly && <TabsTrigger value="assets">Assets</TabsTrigger>}
+                                    {!requestOnly && <TabsTrigger value="tickets">Tickets</TabsTrigger>}
+                                    {showRequestsWorkspace && <TabsTrigger value="requests">Requests</TabsTrigger>}
                                 </TabsList>
                             </div>
                         </CardHeader>
 
                         <CardContent>
+                            {!requestOnly && (
                             <TabsContent value="assets" className="mt-0 space-y-4">
                                 {loading ? (
                                     <div className="space-y-4">
@@ -405,39 +597,27 @@ export function MyAssets() {
                                                         <AlertTriangle className="w-4 h-4 mr-2" />
                                                         Report Issue
                                                     </Button>
-                                                    <Button
-                                                        variant="ghost"
-                                                        size="sm"
-                                                        className="flex-1 sm:flex-none"
-                                                        onClick={async () => {
-                                                            if (!confirm('Are you sure you want to request a return/handover for this asset?')) return
-                                                            try {
-                                                                const displayName = user?.displayName || user?.email?.split('@')[0] || 'Unknown User'
-                                                                const packedName = `${displayName} ||| handover/return_request ||| low ||| ${asset.name || 'Unknown'} ||| User requested asset handover/return.`
-                                                                await blink.db.issuances.create({
-                                                                    assetId: asset.id,
-                                                                    userName: packedName,
-                                                                    userEmail: user?.email,
-                                                                    status: 'ticket_return',
-                                                                    issueDate: new Date().toISOString()
-                                                                })
-                                                                toast.success('Return request submitted')
-                                                                void fetchInitialData()
-                                                            } catch (error: any) {
-                                                                toast.error(`Failed to submit request: ${error.message || ''}`)
-                                                            }
-                                                        }}
-                                                    >
-                                                        <ArrowRightLeft className="w-4 h-4 mr-2" />
-                                                        Return
-                                                    </Button>
+                                                    {ENABLE_REQUEST_WORKFLOW && (
+                                                        <Button
+                                                            variant="ghost"
+                                                            size="sm"
+                                                            className="flex-1 sm:flex-none"
+                                                            disabled={savingRequest}
+                                                            onClick={() => void handleReturnRequest(asset)}
+                                                        >
+                                                            <RefreshCw className="w-4 h-4 mr-2" />
+                                                            Return
+                                                        </Button>
+                                                    )}
                                                 </div>
                                             </div>
                                         ))}
                                     </div>
                                 )}
                             </TabsContent>
+                            )}
 
+                            {!requestOnly && (
                             <TabsContent value="tickets" className="mt-0 space-y-4">
                                 {myTickets.length === 0 ? (
                                     <div className="text-center py-12 bg-muted/10 rounded-xl border border-dashed">
@@ -475,9 +655,11 @@ export function MyAssets() {
                                     </div>
                                 )}
                             </TabsContent>
+                            )}
 
-                            {ENABLE_REQUEST_WORKFLOW && (
+                            {showRequestsWorkspace && (
                                 <TabsContent value="requests" className="mt-0 space-y-5">
+                                    {!historyOnly && (
                                     <div className="rounded-xl border p-4 bg-muted/10 space-y-4">
                                         <div className="flex items-center justify-between">
                                             <div>
@@ -497,6 +679,14 @@ export function MyAssets() {
                                                 </Button>
                                             ))}
                                         </div>
+                                        {requestForm.requestType === 'temporary_loan' && (
+                                            <div className="rounded-md border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900">
+                                                <p className="font-semibold">Demo: Temp Device Allocation meaning</p>
+                                                <p className="mt-1">
+                                                    Use <strong>Temp Device Allocation</strong> when an employee needs an asset only for a short period and must return it by a target date.
+                                                </p>
+                                            </div>
+                                        )}
 
                                         <details open className="rounded-md border bg-background p-3">
                                             <summary className="cursor-pointer text-sm font-medium flex items-center gap-2"><Building2 className="w-4 h-4" /> Request Details</summary>
@@ -512,7 +702,6 @@ export function MyAssets() {
                                                 </Select>
                                                 <Input placeholder="Department" value={requestForm.department} onChange={e => setRequestForm(p => ({ ...p, department: e.target.value }))} />
                                                 <Input placeholder="Location" value={requestForm.location} onChange={e => setRequestForm(p => ({ ...p, location: e.target.value }))} />
-                                                <Input placeholder="Cost Center (optional)" value={requestForm.costCenter} onChange={e => setRequestForm(p => ({ ...p, costCenter: e.target.value }))} />
                                                 <Select value={requestForm.urgency} onValueChange={(v: any) => setRequestForm(p => ({ ...p, urgency: v }))}>
                                                     <SelectTrigger><SelectValue placeholder="Urgency" /></SelectTrigger>
                                                     <SelectContent>
@@ -534,16 +723,37 @@ export function MyAssets() {
                                                 <Select value={requestForm.pmApproverEmail} onValueChange={v => setRequestForm(p => ({ ...p, pmApproverEmail: v }))}>
                                                     <SelectTrigger><SelectValue placeholder="Select PM approver" /></SelectTrigger>
                                                     <SelectContent>
-                                                        {approverCandidates.map((u: any) => <SelectItem key={`pm-${u.email}`} value={u.email}>{u.email}</SelectItem>)}
+                                                        {pmApproverCandidates.map((u: any) => (
+                                                            <SelectItem key={`pm-${u.email}`} value={u.email}>
+                                                                {(u.name ? `${u.name} - ` : '') + u.email}
+                                                            </SelectItem>
+                                                        ))}
                                                     </SelectContent>
                                                 </Select>
-                                                <Select value={requestForm.bossApproverEmail} onValueChange={v => setRequestForm(p => ({ ...p, bossApproverEmail: v }))}>
-                                                    <SelectTrigger><SelectValue placeholder="Select Boss approver" /></SelectTrigger>
-                                                    <SelectContent>
-                                                        {approverCandidates.map((u: any) => <SelectItem key={`boss-${u.email}`} value={u.email}>{u.email}</SelectItem>)}
-                                                    </SelectContent>
-                                                </Select>
+                                                {role === 'user' ? (
+                                                    <Input
+                                                        readOnly
+                                                        value={requestForm.bossApproverEmail || ''}
+                                                        placeholder="Auto-selected from PM mapping"
+                                                    />
+                                                ) : (
+                                                    <Select value={requestForm.bossApproverEmail} onValueChange={v => setRequestForm(p => ({ ...p, bossApproverEmail: v }))}>
+                                                        <SelectTrigger><SelectValue placeholder="Select Boss approver" /></SelectTrigger>
+                                                        <SelectContent>
+                                                            {bossApproverCandidates.map((u: any) => (
+                                                                <SelectItem key={`boss-${u.email}`} value={u.email}>
+                                                                    {(u.name ? `${u.name} - ` : '') + u.email}
+                                                                </SelectItem>
+                                                            ))}
+                                                        </SelectContent>
+                                                    </Select>
+                                                )}
                                             </div>
+                                            {role === 'user' && !requestForm.bossApproverEmail && (
+                                                <p className="text-xs text-amber-700">
+                                                    Boss approver will auto-fill after PM is selected and mapped.
+                                                </p>
+                                            )}
                                         </details>
 
                                         {(requestForm.requestType === 'new_asset' || requestForm.requestType === 'upgrade' || requestForm.requestType === 'accessory_peripheral' || requestForm.requestType === 'temporary_loan') && (
@@ -552,6 +762,31 @@ export function MyAssets() {
                                                 <div className="mt-3 grid md:grid-cols-2 gap-3">
                                                     <div className="md:col-span-2">
                                                         <Textarea rows={4} placeholder="JSON or text config (CPU, RAM, Storage, OS, software, accessories, quantity, required-by-date)" value={requestForm.requestedConfigurationJson} onChange={e => setRequestForm(p => ({ ...p, requestedConfigurationJson: e.target.value }))} />
+                                                    </div>
+                                                </div>
+                                            </details>
+                                        )}
+
+                                        {requestForm.requestType === 'temporary_loan' && (
+                                            <details open className="rounded-md border bg-background p-3">
+                                                <summary className="cursor-pointer text-sm font-medium flex items-center gap-2"><CalendarDays className="w-4 h-4" /> Temp Allocation Dates + Approval/Notification Log</summary>
+                                                <div className="mt-3 grid md:grid-cols-2 gap-3">
+                                                    <Input
+                                                        type="date"
+                                                        value={requestForm.tempIssueDate}
+                                                        onChange={e => setRequestForm(p => ({ ...p, tempIssueDate: e.target.value }))}
+                                                        placeholder="Issue date"
+                                                    />
+                                                    <Input
+                                                        type="date"
+                                                        value={requestForm.tempReturnDate}
+                                                        onChange={e => setRequestForm(p => ({ ...p, tempReturnDate: e.target.value }))}
+                                                        placeholder="Return date"
+                                                    />
+                                                    <div className="md:col-span-2 rounded-md border border-blue-200 bg-blue-50 p-3 text-xs text-blue-900 space-y-1">
+                                                        <p><strong>Approval flow:</strong> Standard existing workflow (unchanged).</p>
+                                                        <p><strong>Email notification log:</strong> Requester + PM are requested for email notification at submission.</p>
+                                                        <p><strong>Overdue return log:</strong> IT Admin watch log is created for follow-up after return date passes ({requestForm.tempReturnDate || 'set return date'}).</p>
                                                     </div>
                                                 </div>
                                             </details>
@@ -586,7 +821,9 @@ export function MyAssets() {
 
                                         <Button onClick={submitRequest} className="w-full" disabled={savingRequest}>{savingRequest ? 'Submitting...' : 'Submit Request'}</Button>
                                     </div>
+                                    )}
 
+                                    {historyOnly && (
                                     <div className="rounded-xl border p-4 bg-background space-y-3">
                                         <div className="flex items-center justify-between gap-2">
                                             <h3 className="text-sm font-semibold">My Request History</h3>
@@ -612,6 +849,27 @@ export function MyAssets() {
                                                         <div className="mt-3 text-xs text-muted-foreground space-y-1">
                                                             <p><strong>Justification:</strong> {req.businessJustification}</p>
                                                             <p><strong>Approvers:</strong> PM {req.pmApproverEmail} | Boss {req.bossApproverEmail}</p>
+                                                            {req.requestType === 'temporary_loan' && req.requestedConfigurationJson && (
+                                                                <>
+                                                                    <p><strong>Temp Issue Date:</strong> {(() => {
+                                                                        try {
+                                                                            const parsed = JSON.parse(req.requestedConfigurationJson)
+                                                                            return parsed?.issueDate || '-'
+                                                                        } catch {
+                                                                            return '-'
+                                                                        }
+                                                                    })()}</p>
+                                                                    <p><strong>Temp Return Date:</strong> {(() => {
+                                                                        try {
+                                                                            const parsed = JSON.parse(req.requestedConfigurationJson)
+                                                                            return parsed?.returnDate || '-'
+                                                                        } catch {
+                                                                            return '-'
+                                                                        }
+                                                                    })()}</p>
+                                                                    <p><strong>Notification Log:</strong> Submission email requested for requester and PM. IT Admin overdue-return watch log created.</p>
+                                                                </>
+                                                            )}
                                                             {req.relatedAssetId && <p><strong>Asset:</strong> {req.relatedAssetId}</p>}
                                                             {req.requestedConfigurationJson && <p><strong>Configuration:</strong> {req.requestedConfigurationJson}</p>}
                                                         </div>
@@ -620,6 +878,7 @@ export function MyAssets() {
                                             </div>
                                         )}
                                     </div>
+                                    )}
 
                                     {pendingApprovals.length > 0 && (
                                         <div className="rounded-xl border p-4 bg-background space-y-3">
@@ -636,7 +895,7 @@ export function MyAssets() {
                                                                 ? (
                                                                     <>
                                                                         <Button size="sm" onClick={() => handleItAction(req, 'fulfill')}>IT Fulfill</Button>
-                                                                        <Button size="sm" variant="outline" onClick={() => handleItAction(req, 'close')}>IT Close</Button>
+                                                                        <Button size="sm" variant="outline" onClick={() => handleItAction(req, 'close')}>Reject (No Stock)</Button>
                                                                     </>
                                                                 )
                                                                 : (
@@ -664,11 +923,11 @@ export function MyAssets() {
                             <CardTitle className="text-base">Quick Actions</CardTitle>
                         </CardHeader>
                         <CardContent className="space-y-2">
-                            <Button className="w-full justify-start" variant="outline" onClick={() => setActiveTab(ENABLE_REQUEST_WORKFLOW ? 'requests' : 'assets')}>
+                            <Button className="w-full justify-start" variant="outline" onClick={openRequestsView}>
                                 <Package className="w-4 h-4 mr-2" />
                                 Request New Asset
                             </Button>
-                            <Button className="w-full justify-start" variant="outline" onClick={() => setActiveTab(ENABLE_REQUEST_WORKFLOW ? 'requests' : 'tickets')}>
+                            <Button className="w-full justify-start" variant="outline" onClick={openRequestsView}>
                                 <Clock className="w-4 h-4 mr-2" />
                                 View Request History
                             </Button>
@@ -693,7 +952,7 @@ export function MyAssets() {
             </div>
 
             <Dialog open={isReportOpen} onOpenChange={setIsReportOpen}>
-                <DialogContent className="sm:max-w-[500px]">
+                <DialogContent className="w-[95vw] sm:max-w-[980px] max-h-[90vh] overflow-y-auto">
                     <DialogHeader>
                         <DialogTitle>Report Issue</DialogTitle>
                         <DialogDescription>
@@ -739,7 +998,7 @@ function ReportIssueForm({ asset, user, onSuccess }: { asset: any, user: any, on
             const displayName = user.displayName || user.email.split('@')[0]
             const packedName = `${displayName} ||| ${category}/${subCategory} ||| ${priority} ||| ${asset.name || 'Unknown'} ||| ${description || 'No details provided'}`
 
-            await blink.db.issuances.create({
+            await dataClient.db.issuances.create({
                 assetId: asset.id,
                 userName: packedName,
                 userEmail: user.email,
@@ -828,3 +1087,4 @@ function ReportIssueForm({ asset, user, onSuccess }: { asset: any, user: any, on
         </form>
     )
 }
+

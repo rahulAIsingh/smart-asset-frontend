@@ -38,7 +38,7 @@ The portal supports two login modes:
 
 ### 1.2 Sign Out
 
-Use **Sign Out** at the bottom of the sidebar. This clears any local dev session and signs out of Blink Auth.
+Use **Sign Out** at the bottom of the sidebar. This clears any local dev session and signs out of the current auth session.
 
 ---
 

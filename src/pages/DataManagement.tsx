@@ -79,7 +79,7 @@ export function DataManagement() {
               <TabsTrigger value="vendors">Vendors</TabsTrigger>
             </TabsList>
 
-            <TabsContent value="categories" className="space-y-6">
+            <TabsContent value="categories" className="space-y-6" data-testid="data-management-categories-tab">
               <div className="bg-muted/30 p-4 rounded-xl space-y-4">
                 <h4 className="text-sm font-medium">Add New Category</h4>
                 <div className="grid grid-cols-1 md:grid-cols-[1fr_220px_auto] gap-3">
@@ -103,7 +103,6 @@ export function DataManagement() {
                       {iconOptions.map(icon => (
                         <SelectItem key={icon} value={icon}>
                           <div className="flex items-center gap-2 capitalize">
-                            {/* @ts-ignore */}
                             {React.createElement(ICON_MAP[icon], { className: 'w-4 h-4' })}
                             {icon}
                           </div>
@@ -160,7 +159,7 @@ export function DataManagement() {
                 )}
               </div>
 
-              <div className="max-h-56 overflow-auto space-y-2 pr-1">
+              <div className="max-h-56 overflow-auto space-y-2 pr-1" data-testid="data-management-categories-list">
                 {categories.map(cat => {
                   const Icon = ICON_MAP[cat.icon] || ICON_MAP.default
                   return (
@@ -180,7 +179,7 @@ export function DataManagement() {
               </div>
             </TabsContent>
 
-            <TabsContent value="departments" className="space-y-6">
+            <TabsContent value="departments" className="space-y-6" data-testid="data-management-departments-tab">
               <div className="bg-muted/30 p-4 rounded-xl space-y-4">
                 <h4 className="text-sm font-medium">Add Department</h4>
                 <div className="grid grid-cols-1 md:grid-cols-[1fr_auto] gap-3">
@@ -232,7 +231,7 @@ export function DataManagement() {
                 </div>
               </div>
 
-              <div className="max-h-56 overflow-auto space-y-2 pr-1">
+              <div className="max-h-56 overflow-auto space-y-2 pr-1" data-testid="data-management-departments-list">
                 {departments.map(dep => (
                   <div key={dep} className="flex items-center justify-between p-3 bg-card border border-border/50 rounded-lg">
                     <p className="font-medium text-sm">{dep}</p>
@@ -241,7 +240,7 @@ export function DataManagement() {
               </div>
             </TabsContent>
 
-            <TabsContent value="vendors" className="space-y-6">
+            <TabsContent value="vendors" className="space-y-6" data-testid="data-management-vendors-tab">
               <div className="bg-muted/30 p-4 rounded-xl space-y-4">
                 <h4 className="text-sm font-medium">Add Vendor</h4>
                 <div className="grid grid-cols-1 md:grid-cols-[1fr_auto] gap-3">
@@ -293,7 +292,7 @@ export function DataManagement() {
                 </div>
               </div>
 
-              <div className="max-h-56 overflow-auto space-y-2 pr-1">
+              <div className="max-h-56 overflow-auto space-y-2 pr-1" data-testid="data-management-vendors-list">
                 {vendors.map(vendor => (
                   <div key={vendor} className="flex items-center justify-between p-3 bg-card border border-border/50 rounded-lg">
                     <p className="font-medium text-sm">{vendor}</p>

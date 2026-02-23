@@ -1,5 +1,5 @@
-﻿import { useState, useEffect } from 'react'
-import { blink } from '../lib/blink'
+import { useState, useEffect } from 'react'
+import { dataClient } from '../lib/dataClient'
 
 export type UserRole = 'admin' | 'user' | 'support' | 'pm' | 'boss'
 
@@ -43,7 +43,7 @@ const initAuthOnce = () => {
     return
   }
 
-  authUnsubscribe = blink.auth.onAuthStateChanged((state: { user: AppUser | null; isLoading?: boolean; loading?: boolean }) => {
+  authUnsubscribe = dataClient.auth.onAuthStateChanged((state: { user: AppUser | null; isLoading?: boolean; loading?: boolean }) => {
     setAuthSnapshot({ user: state.user, loading: Boolean(state.isLoading ?? state.loading) })
   })
 }
@@ -70,7 +70,7 @@ export function useAuth() {
     }
   }, [])
 
-  const login = () => blink.auth.login()
+  const login = () => dataClient.auth.login()
 
   const devLogin = (email: string, role: UserRole) => {
     const fakeUser = {
@@ -89,9 +89,10 @@ export function useAuth() {
 
   const logout = () => {
     localStorage.removeItem('sam_dev_user')
-    blink.auth.signOut()
+    dataClient.auth.signOut()
     setAuthSnapshot({ user: null, loading: false })
   }
 
   return { user, loading, login, devLogin, logout, isAuthenticated: !!user }
 }
+

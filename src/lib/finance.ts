@@ -1,4 +1,4 @@
-import { blink } from './blink'
+import { dataClient } from './dataClient'
 
 export type DepMethod = 'straight_line'
 export type SalvageType = 'percent' | 'fixed'
@@ -172,7 +172,7 @@ const tryEnsureFinanceSchema = async () => {
   if (attemptedSchemaBootstrap) return false
   attemptedSchemaBootstrap = true
   try {
-    await blink.db.batch(FINANCE_SCHEMA_SQL.map(sql => ({ sql })), 'write')
+    await dataClient.db.batch(FINANCE_SCHEMA_SQL.map(sql => ({ sql })), 'write')
     return true
   } catch {
     return false
@@ -232,7 +232,7 @@ export const calcDepreciation = (input: {
 
 export const listFinanceProfiles = async () => {
   try {
-    const rows = await blink.db.financeProfiles.list({ orderBy: { category: 'asc' } }) as DbRow[]
+    const rows = await dataClient.db.financeProfiles.list({ orderBy: { category: 'asc' } }) as DbRow[]
     const normalized = rows.map(normalizeProfile)
     writeLocalProfiles(normalized)
     return { rows: normalized, source: 'db' as const }
@@ -240,7 +240,7 @@ export const listFinanceProfiles = async () => {
     const ensured = await tryEnsureFinanceSchema()
     if (ensured) {
       try {
-        const rows = await blink.db.financeProfiles.list({ orderBy: { category: 'asc' } }) as DbRow[]
+        const rows = await dataClient.db.financeProfiles.list({ orderBy: { category: 'asc' } }) as DbRow[]
         const normalized = rows.map(normalizeProfile)
         writeLocalProfiles(normalized)
         return { rows: normalized, source: 'db' as const }
@@ -276,13 +276,13 @@ export const upsertFinanceProfile = async (
     const { rows } = await listFinanceProfiles()
     const existing = rows.find(r => r.category === normalizedCategory)
     if (existing?.id) {
-      await blink.db.financeProfiles.update(existing.id, {
+      await dataClient.db.financeProfiles.update(existing.id, {
         ...payload,
         id: undefined,
       })
       return { row: { ...payload, id: existing.id }, source: 'db' as const }
     }
-    const created = await blink.db.financeProfiles.create(payload) as DbRow
+    const created = await dataClient.db.financeProfiles.create(payload) as DbRow
     const row = normalizeProfile(created)
     return { row, source: 'db' as const }
   } catch {
@@ -297,7 +297,7 @@ export const upsertFinanceProfile = async (
 export const deactivateFinanceProfile = async (id: string, actor: string) => {
   const now = nowIso()
   try {
-    await blink.db.financeProfiles.update(id, { active: false, updatedBy: actor, updatedDate: now })
+    await dataClient.db.financeProfiles.update(id, { active: false, updatedBy: actor, updatedDate: now })
     return { source: 'db' as const }
   } catch {
     const existing = readLocalProfiles()
@@ -309,7 +309,7 @@ export const deactivateFinanceProfile = async (id: string, actor: string) => {
 
 export const listFinanceAssetOverrides = async () => {
   try {
-    const rows = await blink.db.financeAssetOverrides.list({ orderBy: { createdDate: 'desc' } }) as DbRow[]
+    const rows = await dataClient.db.financeAssetOverrides.list({ orderBy: { createdDate: 'desc' } }) as DbRow[]
     const normalized = rows.map(normalizeOverride)
     writeLocalOverrides(normalized)
     return { rows: normalized, source: 'db' as const }
@@ -317,7 +317,7 @@ export const listFinanceAssetOverrides = async () => {
     const ensured = await tryEnsureFinanceSchema()
     if (ensured) {
       try {
-        const rows = await blink.db.financeAssetOverrides.list({ orderBy: { createdDate: 'desc' } }) as DbRow[]
+        const rows = await dataClient.db.financeAssetOverrides.list({ orderBy: { createdDate: 'desc' } }) as DbRow[]
         const normalized = rows.map(normalizeOverride)
         writeLocalOverrides(normalized)
         return { rows: normalized, source: 'db' as const }
@@ -345,13 +345,13 @@ export const upsertFinanceAssetOverride = async (
 
   try {
     if (byAsset?.id) {
-      await blink.db.financeAssetOverrides.update(byAsset.id, {
+      await dataClient.db.financeAssetOverrides.update(byAsset.id, {
         ...row,
         id: undefined,
       })
       return { row: { ...row, id: byAsset.id }, source: 'db' as const }
     }
-    const created = await blink.db.financeAssetOverrides.create(row) as DbRow
+    const created = await dataClient.db.financeAssetOverrides.create(row) as DbRow
     return { row: normalizeOverride(created), source: 'db' as const }
   } catch {
     const next = byAsset
@@ -361,3 +361,5 @@ export const upsertFinanceAssetOverride = async (
     return { row, source: 'local' as const }
   }
 }
+
+

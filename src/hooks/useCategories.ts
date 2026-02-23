@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { blink } from '../lib/blink'
+import { dataClient } from '../lib/dataClient'
 import {
     Laptop,
     Smartphone,
@@ -94,7 +94,7 @@ export function useCategories() {
     const fetchCategoriesFromApi = async () => {
         if (categoriesCache && categoriesCache.length > 0) return categoriesCache
         if (!categoriesFetchPromise) {
-            categoriesFetchPromise = blink.db.categories.list()
+            categoriesFetchPromise = dataClient.db.categories.list()
                 .then(data => withFallbackIds(data.length > 0 ? data : DEFAULT_CATEGORIES))
                 .finally(() => {
                     categoriesFetchPromise = null
@@ -139,7 +139,7 @@ export function useCategories() {
         try {
             console.log('🌱 Seeding initial categories...')
             const promises = DEFAULT_CATEGORIES.map(cat =>
-                blink.db.categories.create(cat).catch(e => console.warn(`Failed to seed ${cat.value}:`, e))
+                dataClient.db.categories.create(cat).catch(e => console.warn(`Failed to seed ${cat.value}:`, e))
             )
             await Promise.all(promises)
             fetchCategories(true) // Reload from DB with retry flag
@@ -167,7 +167,7 @@ export function useCategories() {
             }
 
             if (!dbUnavailable) {
-                await blink.db.categories.create({
+                await dataClient.db.categories.create({
                     label: cleanLabel,
                     value,
                     icon: iconName
@@ -202,7 +202,7 @@ export function useCategories() {
         setStoredCategories(next)
         try {
             if (!dbUnavailable) {
-                await blink.db.categories.delete(id)
+                await dataClient.db.categories.delete(id)
                 categoriesCache = null
                 toast.success('Category deleted')
                 fetchCategories()
@@ -224,3 +224,4 @@ export function useCategories() {
         iconOptions: Object.keys(ICON_MAP).filter(k => k !== 'default')
     }
 }
+

@@ -1,4 +1,11 @@
-﻿const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000'
+const resolveDefaultApiBaseUrl = () => {
+  if (typeof window === 'undefined') return 'http://localhost:5000'
+  const host = window.location.hostname
+  if (host === 'localhost' || host === '127.0.0.1') return 'http://localhost:5000'
+  return window.location.origin
+}
+
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || resolveDefaultApiBaseUrl()
 
 type HttpMethod = 'GET' | 'POST' | 'PATCH' | 'DELETE'
 

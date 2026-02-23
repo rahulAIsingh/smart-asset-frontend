@@ -22,7 +22,7 @@ import {
   Layout
 } from 'lucide-react'
 import * as XLSX from 'xlsx'
-import { blink } from '../lib/blink'
+import { dataClient } from '../lib/dataClient'
 import { Button } from '../components/ui/button'
 import { Input } from '../components/ui/input'
 import { Textarea } from '../components/ui/textarea'
@@ -70,11 +70,13 @@ import { useCategories, ICON_MAP } from '../hooks/useCategories'
 import { useUserRole } from '../hooks/useUserRole'
 import { AssetHistory } from '../components/AssetHistory'
 import { useDepartments } from '../hooks/useDepartments'
+import { useVendors } from '../hooks/useVendors'
 
 export function Assets() {
   const { isAdmin } = useUserRole()
   const { categories, loading: categoriesLoading } = useCategories()
   const { departments } = useDepartments()
+  const { vendors } = useVendors()
   const [assets, setAssets] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
@@ -84,6 +86,7 @@ export function Assets() {
   const [newAsset, setNewAsset] = useState({
     category: 'laptop',
     serialNumber: '',
+    deviceSerialNumber: '',
     location: 'Main Office',
     configuration: '',
     company: '',
@@ -93,6 +96,18 @@ export function Assets() {
     warrantyEnd: '',
     warrantyVendor: ''
   })
+  const [stockChoices, setStockChoices] = useState<Array<{
+    key: string
+    label: string
+    category: string
+    itemName: string
+    serialNumber: string
+    location: string
+    vendor: string
+    referenceNumber: string
+    qty: number
+  }>>([])
+  const [selectedStockKey, setSelectedStockKey] = useState<string>('none')
 
   // Edit Asset State
   const [isEditOpen, setIsEditOpen] = useState(false)
@@ -101,6 +116,64 @@ export function Assets() {
   // History State
   const [isHistoryOpen, setIsHistoryOpen] = useState(false)
   const [historyAsset, setHistoryAsset] = useState<any>(null)
+
+  const parseStockMeta = (reason: string) => {
+    if (!reason || !reason.startsWith('v2|')) return null
+    try {
+      const record: Record<string, string> = {}
+      reason.split('|').slice(1).forEach(part => {
+        const idx = part.indexOf('=')
+        if (idx > 0) record[part.slice(0, idx)] = part.slice(idx + 1)
+      })
+      const dec = (v?: string) => decodeURIComponent(v || '')
+      const category = dec(record.c)
+      const itemName = dec(record.i)
+      const location = dec(record.l)
+      if (!category || !itemName || !location) return null
+      return {
+        category,
+        itemName,
+        serialNumber: dec(record.sn),
+        location,
+        vendor: dec(record.v),
+        referenceNumber: dec(record.r),
+        approvalStatus: dec(record.as),
+      }
+    } catch {
+      return null
+    }
+  }
+
+  const buildStockMetaReason = (input: {
+    category: string
+    itemName: string
+    serialNumber?: string
+    location: string
+    vendor?: string
+    referenceNumber?: string
+    note: string
+    createdBy: string
+    createdDate: string
+  }) => {
+    const enc = (v?: string) => encodeURIComponent((v || '').trim())
+    const parts = [
+      `v2|c=${enc(input.category)}`,
+      `i=${enc(input.itemName)}`,
+      `sn=${enc(input.serialNumber)}`,
+      `l=${enc(input.location)}`,
+      `d=${enc(input.createdDate.slice(0, 10))}`,
+      `n=${enc(input.note)}`,
+      `by=${enc(input.createdBy)}`,
+      `cd=${enc(input.createdDate)}`,
+      'q=1',
+      'rt=issue',
+      'as=approved',
+      `rs=${enc('Converted to asset')}`
+    ]
+    if (input.vendor?.trim()) parts.push(`v=${enc(input.vendor)}`)
+    if (input.referenceNumber?.trim()) parts.push(`r=${enc(input.referenceNumber)}`)
+    return parts.join('|')
+  }
 
   // Unpack helper
   const unpackLocation = (packed: string) => {
@@ -116,6 +189,7 @@ export function Assets() {
     company: string,
     model: string,
     department: string,
+    deviceSerialNumber: string,
     config: string,
     warrantyStart?: string,
     warrantyEnd?: string,
@@ -125,6 +199,7 @@ export function Assets() {
     if (company?.trim()) parts.push(`Company: ${company.trim()}`)
     if (model?.trim()) parts.push(`Model: ${model.trim()}`)
     if (department?.trim()) parts.push(`Department: ${department.trim()}`)
+    if (deviceSerialNumber?.trim()) parts.push(`Serial Number: ${deviceSerialNumber.trim()}`)
     if (warrantyStart?.trim()) parts.push(`Warranty Start: ${warrantyStart.trim()}`)
     if (warrantyEnd?.trim()) parts.push(`Warranty End: ${warrantyEnd.trim()}`)
     if (warrantyVendor?.trim()) parts.push(`Warranty Vendor: ${warrantyVendor.trim()}`)
@@ -200,7 +275,7 @@ export function Assets() {
     if (!source) return details
 
     const companyMatch =
-      source.match(/\b(?:company|brand|vendor)\s*[:\-]\s*([A-Za-z0-9 ]{2,40})\b/i) ||
+      source.match(/\b(?:company|brand|vendor)\s*[:-]\s*([A-Za-z0-9 ]{2,40})\b/i) ||
       source.match(/\b(zebra|honeywell|datalogic|motorola|samsung|apple|lenovo|dell|hp)\b/i)
     if (companyMatch) {
       details.company = companyMatch[1] ? companyMatch[1].trim() : companyMatch[0].trim()
@@ -209,8 +284,8 @@ export function Assets() {
     }
 
     const modelMatch =
-      source.match(/\b(?:model|model no|model number)\s*[:\-]\s*([A-Za-z0-9\- ]{2,40})\b/i) ||
-      source.match(/\b([A-Z]{1,3}\d{2,4}[A-Z0-9\-]*)\b/)
+      source.match(/\b(?:model|model no|model number)\s*[:-]\s*([A-Za-z0-9- ]{2,40})\b/i) ||
+      source.match(/\b([A-Z]{1,3}\d{2,4}[A-Z0-9-]*)\b/)
     if (modelMatch) {
       details.model = modelMatch[1] ? modelMatch[1].trim() : modelMatch[0].trim()
     }
@@ -270,9 +345,10 @@ export function Assets() {
 
   const fetchAssets = async () => {
     try {
-      const [data, issuances] = await Promise.all([
-        blink.db.assets.list({ orderBy: { createdAt: 'desc' } }),
-        blink.db.issuances.list({ where: { status: 'active' } })
+      const [data, issuances, stockTxs] = await Promise.all([
+        dataClient.db.assets.list({ orderBy: { createdAt: 'desc' } }),
+        dataClient.db.issuances.list({ where: { status: 'active' } }),
+        dataClient.db.stockTransactions.list({ orderBy: { createdAt: 'desc' } })
       ])
       const activeAssignments = new Map<string, { userName?: string, userEmail?: string }>()
       issuances
@@ -290,9 +366,17 @@ export function Assets() {
         const warrantyStartMatch = (configuration || a.configuration || '').match(/Warranty Start:\s*([^|]+)/i)
         const warrantyEndMatch = (configuration || a.configuration || '').match(/Warranty End:\s*([^|]+)/i)
         const warrantyVendorMatch = (configuration || a.configuration || '').match(/Warranty Vendor:\s*([^|]+)/i)
+        const serialMatch = (configuration || a.configuration || '').match(/Serial Number:\s*([^|]+)/i)
+        const serviceTagMatch = (configuration || a.configuration || '').match(/Service Tag:\s*([^,|]+)/i)
         const warrantyStart = warrantyStartMatch ? warrantyStartMatch[1].trim() : ''
         const warrantyEnd = warrantyEndMatch ? warrantyEndMatch[1].trim() : ''
         const warrantyVendor = warrantyVendorMatch ? warrantyVendorMatch[1].trim() : ''
+        const deviceSerialNumber = (
+          a.deviceSerialNumber ||
+          (serialMatch ? serialMatch[1].trim() : '') ||
+          (serviceTagMatch ? serviceTagMatch[1].trim() : '') ||
+          ''
+        ).trim()
         const assignment = activeAssignments.get(a.id)
         return {
           ...a,
@@ -304,11 +388,58 @@ export function Assets() {
           warrantyStart,
           warrantyEnd,
           warrantyVendor,
+          deviceSerialNumber,
           assignedToName: a.assignedToName || assignment?.userName || '',
           assignedTo: a.assignedTo || assignment?.userEmail || ''
         }
       })
       setAssets(processedAssets)
+
+      const stockMap = new Map<string, {
+        category: string
+        itemName: string
+        serialNumber: string
+        location: string
+        vendor: string
+        referenceNumber: string
+        qty: number
+      }>()
+
+      ;(stockTxs as any[]).forEach((tx: any) => {
+        if (!tx || (tx.type !== 'in' && tx.type !== 'out')) return
+        const meta = parseStockMeta(String(tx.reason || ''))
+        if (!meta) return
+        if (meta.approvalStatus && meta.approvalStatus !== 'approved') return
+        const key = `${meta.category}||${meta.itemName}||${meta.serialNumber || ''}||${meta.location}||${meta.vendor || ''}||${meta.referenceNumber || ''}`
+        const row = stockMap.get(key) || {
+          category: meta.category,
+          itemName: meta.itemName,
+          serialNumber: meta.serialNumber || '',
+          location: meta.location,
+          vendor: meta.vendor || '',
+          referenceNumber: meta.referenceNumber || '',
+          qty: 0
+        }
+        const qty = Number(tx.quantity) || 0
+        row.qty += tx.type === 'in' ? qty : -qty
+        stockMap.set(key, row)
+      })
+
+      const choices = Array.from(stockMap.entries())
+        .map(([key, v]) => ({
+          key,
+          label: `${v.itemName}${v.serialNumber ? ` [${v.serialNumber}]` : ''} (${v.location})${v.vendor ? ` • ${v.vendor}` : ''}${v.referenceNumber ? ` • ${v.referenceNumber}` : ''} • Qty: ${v.qty}`,
+          category: v.category,
+          itemName: v.itemName,
+          serialNumber: v.serialNumber,
+          location: v.location,
+          vendor: v.vendor,
+          referenceNumber: v.referenceNumber,
+          qty: v.qty
+        }))
+        .filter(v => v.qty > 0)
+        .sort((a, b) => a.itemName.localeCompare(b.itemName))
+      setStockChoices(choices)
     } catch (error) {
       toast.error('Failed to fetch assets')
     } finally {
@@ -321,7 +452,7 @@ export function Assets() {
 
     // Check for Dev Login
     if (isRestrictedDevUser()) {
-      toast.error('Dev Login is read-only. To add assets, please Logout and "Sign in with Blink Auth".', {
+      toast.error('Dev Login is read-only. To add assets, please Logout and "Sign in with Company SSO".', {
         duration: 5000,
         position: 'top-center'
       })
@@ -333,6 +464,7 @@ export function Assets() {
         newAsset.company,
         newAsset.model,
         newAsset.department,
+        newAsset.deviceSerialNumber,
         newAsset.configuration,
         newAsset.warrantyStart,
         newAsset.warrantyEnd,
@@ -344,25 +476,60 @@ export function Assets() {
         ? newAsset.serialNumber.trim()
         : getNextSerialForCategory(newAsset.category, existingSerials, serialCounters)
       const packedLocation = `${newAsset.location} ||| ${fullConfig}`
-      const created = await blink.db.assets.create({
+      const created = await dataClient.db.assets.create({
         name: buildAssetName(newAsset.company, newAsset.model),
         category: newAsset.category,
         serialNumber,
+        deviceSerialNumber: (newAsset.deviceSerialNumber || '').trim(),
+        company: (newAsset.company || '').trim(),
+        model: (newAsset.model || '').trim(),
+        department: (newAsset.department || '').trim(),
+        warrantyStart: (newAsset.warrantyStart || '').trim(),
+        warrantyEnd: (newAsset.warrantyEnd || '').trim(),
+        warrantyVendor: (newAsset.warrantyVendor || '').trim(),
+        configuration: (newAsset.configuration || '').trim(),
         location: packedLocation,
         status: 'available'
       })
-      await blink.db.stockTransactions.create({
-        assetId: created.id,
-        type: 'in',
-        quantity: 1,
-        reason: 'New asset added',
-        createdAt: new Date().toISOString()
-      })
+      if (selectedStockKey !== 'none') {
+        const selectedStock = stockChoices.find(s => s.key === selectedStockKey)
+        if (selectedStock) {
+          const now = new Date().toISOString()
+          const reason = buildStockMetaReason({
+            category: selectedStock.category,
+            itemName: selectedStock.itemName,
+            serialNumber: selectedStock.serialNumber,
+            location: selectedStock.location,
+            vendor: selectedStock.vendor,
+            referenceNumber: selectedStock.referenceNumber,
+            note: `Converted to asset ${serialNumber}`,
+            createdBy: 'asset-module',
+            createdDate: now
+          })
+          await dataClient.db.stockTransactions.create({
+            assetId: created.id,
+            type: 'out',
+            quantity: 1,
+            reason,
+            createdAt: now
+          })
+        }
+      } else {
+        await dataClient.db.stockTransactions.create({
+          assetId: created.id,
+          type: 'in',
+          quantity: 1,
+          reason: 'New asset added',
+          createdAt: new Date().toISOString()
+        })
+      }
       toast.success('Asset added successfully')
       setIsAddOpen(false)
+      setSelectedStockKey('none')
       setNewAsset({
         category: categories[0]?.value || 'laptop',
         serialNumber: '',
+        deviceSerialNumber: '',
         location: 'Main Office',
         configuration: '',
         company: '',
@@ -385,7 +552,7 @@ export function Assets() {
 
     // Check for Dev Login
     if (isRestrictedDevUser()) {
-      toast.error('Dev Login is read-only. Please "Sign in with Blink Auth" to update records.')
+      toast.error('Dev Login is read-only. Please "Sign in with Company SSO" to update records.')
       return
     }
 
@@ -395,6 +562,7 @@ export function Assets() {
         editingAsset.company,
         editingAsset.model,
         editingAsset.department,
+        editingAsset.deviceSerialNumber || '',
         editingAsset.configuration || '',
         editingAsset.warrantyStart,
         editingAsset.warrantyEnd,
@@ -407,11 +575,19 @@ export function Assets() {
         name: buildAssetName(editingAsset.company, editingAsset.model),
         category: editingAsset.category,
         serialNumber: editingAsset.serialNumber,
+        deviceSerialNumber: editingAsset.deviceSerialNumber || '',
+        company: (editingAsset.company || '').trim(),
+        model: (editingAsset.model || '').trim(),
+        department: (editingAsset.department || '').trim(),
+        warrantyStart: (editingAsset.warrantyStart || '').trim(),
+        warrantyEnd: (editingAsset.warrantyEnd || '').trim(),
+        warrantyVendor: (editingAsset.warrantyVendor || '').trim(),
+        configuration: (editingAsset.configuration || '').trim(),
         status: editingAsset.status,
         location: packedLocation
       }
 
-      await blink.db.assets.update(editingAsset.id, updateData)
+      await dataClient.db.assets.update(editingAsset.id, updateData)
       toast.success('Asset updated successfully')
       setIsEditOpen(false)
       setEditingAsset(null)
@@ -427,19 +603,12 @@ export function Assets() {
 
     // Check for Dev Login
     if (isRestrictedDevUser()) {
-      toast.error('Dev Login is read-only. Please use Blink Auth for database changes.')
+      toast.error('Dev Login is read-only. Please use Company SSO for database changes.')
       return
     }
 
     try {
-      await blink.db.assets.delete(id)
-      await blink.db.stockTransactions.create({
-        assetId: id,
-        type: 'out',
-        quantity: 1,
-        reason: 'Asset deleted',
-        createdAt: new Date().toISOString()
-      })
+      await dataClient.db.assets.delete(id)
       toast.success('Asset deleted')
       fetchAssets()
     } catch (error) {
@@ -453,7 +622,7 @@ export function Assets() {
 
     // Check for Dev Login
     if (isRestrictedDevUser()) {
-      toast.error('Dev Login is read-only. Please "Sign in with Blink Auth" to import assets.')
+      toast.error('Dev Login is read-only. Please "Sign in with Company SSO" to import assets.')
       return
     }
 
@@ -470,14 +639,14 @@ export function Assets() {
         const guess = (cands: string[]) => headers.find(h => cands.some(c => h.toLowerCase() === c.toLowerCase())) || ''
         setImportMapping({
           model: guess(['ASSET MODEL', 'Asset Model', 'Model']),
-          assetId: guess(['ASSET ID', 'Asset ID', 'SerialNumber', 'Serial Number']),
+          assetId: guess(['ASSET ID', 'Asset ID', 'Asset Code']),
           company: guess(['Company']),
           department: guess(['Department']),
           category: guess(['Category']),
           processor: guess(['PROCESSOR', 'Processor']),
           ram: guess(['RAM', 'Ram']),
           hdd: guess(['HDD', 'Storage']),
-          serviceTag: guess(['SERVICE TAG', 'Service Tag', 'SERVICE TAG ']),
+          serviceTag: guess(['Serial Number', 'Serial No', 'SERIAL NUMBER', 'SERVICE TAG', 'Service Tag', 'SERVICE TAG ']),
           location: guess(['Location']),
           configuration: guess(['Configuration']),
           warrantyStart: guess(['Warranty Start', 'WarrantyStart', 'Warranty From']),
@@ -521,12 +690,14 @@ export function Assets() {
         const ram = getVal(importMapping.ram)
         const hdd = getVal(importMapping.hdd)
         const serviceTag = getVal(importMapping.serviceTag)
+        const deviceSerialRaw = getVal(importMapping.serviceTag)
         const configParts = [processor, ram ? `${ram} RAM` : '', hdd, serviceTag ? `Service Tag: ${serviceTag}` : ''].filter(Boolean).join(', ')
         const rowConfig = getVal(importMapping.configuration) || configParts
         const fullConfig = buildConfiguration(
           String(company || ''),
           String(model || ''),
           String(department || ''),
+          String(deviceSerialRaw || ''),
           String(rowConfig || ''),
           String(warrantyStart || ''),
           String(warrantyEnd || ''),
@@ -547,14 +718,22 @@ export function Assets() {
           ? String(serialRaw).trim()
           : getNextSerialForCategory(category, existingSerials, serialCounters)
 
-        const created = await blink.db.assets.create({
+        const created = await dataClient.db.assets.create({
           name: buildAssetName(String(company || ''), String(model || '')) || 'Unknown Asset',
           category,
           serialNumber,
+          deviceSerialNumber: deviceSerialRaw ? String(deviceSerialRaw).trim() : '',
+          company: String(company || '').trim(),
+          model: String(model || '').trim(),
+          department: String(department || '').trim(),
+          warrantyStart: String(warrantyStart || '').trim(),
+          warrantyEnd: String(warrantyEnd || '').trim(),
+          warrantyVendor: String(warrantyVendor || '').trim(),
+          configuration: String(rowConfig || '').trim(),
           location: packedLocation,
           status: 'available'
         })
-        await blink.db.stockTransactions.create({
+        await dataClient.db.stockTransactions.create({
           assetId: created.id,
           type: 'in',
           quantity: 1,
@@ -582,7 +761,8 @@ export function Assets() {
 
   const filteredAssets = assets.filter(asset => {
     const matchesSearch = asset.name.toLowerCase().includes(search.toLowerCase()) ||
-      asset.serialNumber.toLowerCase().includes(search.toLowerCase())
+      asset.serialNumber.toLowerCase().includes(search.toLowerCase()) ||
+      (asset.deviceSerialNumber || '').toLowerCase().includes(search.toLowerCase())
 
     const matchesCategory = tabCategory
       ? asset.category === tabCategory
@@ -673,6 +853,7 @@ export function Assets() {
                   onChange={handleBulkImport}
                   className="hidden"
                   id="bulk-import-input"
+                  data-testid="bulk-import-input"
                 />
                 <Button variant="outline" className="rounded-xl" asChild>
                   <label htmlFor="bulk-import-input" className="cursor-pointer">
@@ -687,7 +868,7 @@ export function Assets() {
               </Button>
             </div>
           </DialogTrigger>
-          <DialogContent className="sm:max-w-[425px]">
+          <DialogContent className="w-[95vw] sm:max-w-[640px] max-h-[90vh] overflow-y-auto">
             <DialogHeader>
               <DialogTitle>Add New Asset</DialogTitle>
             </DialogHeader>
@@ -698,7 +879,7 @@ export function Assets() {
               {(isLaptopCategory(newAsset.category) || isMobileBarcodeCategory(newAsset.category)) && (
                 <>
                   <div className="space-y-2">
-                    <label className="text-sm font-medium">Company</label>
+                <label className="text-sm font-medium">Company</label>
                     <Input
                       placeholder="e.g. Zebra, Honeywell, Dell"
                       value={newAsset.company}
@@ -713,8 +894,58 @@ export function Assets() {
                       onChange={e => setNewAsset({ ...newAsset, model: e.target.value })}
                     />
                   </div>
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium">Asset ID</label>
+                    <Input
+                      placeholder="Leave blank to auto-generate (KTPL-L01)"
+                      value={newAsset.serialNumber}
+                      onChange={e => setNewAsset({ ...newAsset, serialNumber: e.target.value })}
+                    />
+                    <p className="text-[10px] text-muted-foreground">Auto format: KTPL-L01, KTPL-P01, KTPL-M01...</p>
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium">Serial Number</label>
+                    <Input
+                      placeholder="Enter device serial number"
+                      value={newAsset.deviceSerialNumber}
+                      onChange={e => setNewAsset({ ...newAsset, deviceSerialNumber: e.target.value })}
+                    />
+                  </div>
                 </>
               )}
+              <div className="space-y-2">
+                <label className="text-sm font-medium">Convert From Stock (Optional)</label>
+                <Select
+                  value={selectedStockKey}
+                  onValueChange={(v) => {
+                    setSelectedStockKey(v)
+                    if (v === 'none') return
+                    const selected = stockChoices.find(s => s.key === v)
+                    if (!selected) return
+                    const mappedCategory = categories.some(c => c.value === selected.category) ? selected.category : (newAsset.category || categories[0]?.value || 'laptop')
+                    setNewAsset(prev => ({
+                      ...prev,
+                      category: mappedCategory,
+                      company: selected.vendor || prev.company,
+                      model: selected.itemName || prev.model,
+                      location: selected.location || prev.location,
+                      warrantyVendor: selected.vendor || prev.warrantyVendor,
+                      deviceSerialNumber: selected.serialNumber || selected.referenceNumber || prev.deviceSerialNumber
+                    }))
+                  }}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select stock item to convert" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">Manual Entry (No Stock Conversion)</SelectItem>
+                    {stockChoices.map(choice => (
+                      <SelectItem key={choice.key} value={choice.key}>{choice.label}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <p className="text-[10px] text-muted-foreground">Selecting stock auto-fills fields. You can still edit all fields manually.</p>
+              </div>
               <div className="space-y-2">
                 <label className="text-sm font-medium">Department</label>
                 <Select
@@ -751,11 +982,20 @@ export function Assets() {
               </div>
               <div className="space-y-2">
                 <label className="text-sm font-medium">Warranty Vendor</label>
-                <Input
-                  placeholder="e.g. Dell, HP, Lenovo"
-                  value={newAsset.warrantyVendor}
-                  onChange={e => setNewAsset({ ...newAsset, warrantyVendor: e.target.value })}
-                />
+                <Select
+                  value={newAsset.warrantyVendor || '__none__'}
+                  onValueChange={v => setNewAsset({ ...newAsset, warrantyVendor: v === '__none__' ? '' : v })}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select warranty vendor" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__none__">None</SelectItem>
+                    {vendors.map(vendor => (
+                      <SelectItem key={vendor} value={vendor}>{vendor}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
               <div className="space-y-2">
                 <label className="text-sm font-medium">Category</label>
@@ -778,15 +1018,27 @@ export function Assets() {
                   </SelectContent>
                 </Select>
               </div>
-              <div className="space-y-2">
-                <label className="text-sm font-medium">Asset ID</label>
-                <Input
-                  placeholder="Leave blank to auto-generate (KTPL-L01)"
-                  value={newAsset.serialNumber}
-                  onChange={e => setNewAsset({ ...newAsset, serialNumber: e.target.value })}
-                />
-                <p className="text-[10px] text-muted-foreground">Auto ID format: KTPL-L01, KTPL-P01, KTPL-M01…</p>
-              </div>
+              {!isLaptopCategory(newAsset.category) && !isMobileBarcodeCategory(newAsset.category) && (
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium">Asset ID</label>
+                    <Input
+                      placeholder="Leave blank to auto-generate (KTPL-L01)"
+                      value={newAsset.serialNumber}
+                      onChange={e => setNewAsset({ ...newAsset, serialNumber: e.target.value })}
+                    />
+                    <p className="text-[10px] text-muted-foreground">Auto format: KTPL-L01, KTPL-P01, KTPL-M01...</p>
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium">Serial Number</label>
+                    <Input
+                      placeholder="Enter device serial number"
+                      value={newAsset.deviceSerialNumber}
+                      onChange={e => setNewAsset({ ...newAsset, deviceSerialNumber: e.target.value })}
+                    />
+                  </div>
+                </div>
+              )}
               {isLaptopCategory(newAsset.category) && (
                 <div className="space-y-2">
                   <label className="text-sm font-medium flex items-center gap-2">
@@ -898,7 +1150,7 @@ export function Assets() {
 
           {/* Edit Dialog */}
           <Dialog open={isEditOpen} onOpenChange={setIsEditOpen}>
-            <DialogContent className="sm:max-w-[425px]">
+            <DialogContent className="w-[95vw] sm:max-w-[640px] max-h-[90vh] overflow-y-auto">
               <DialogHeader>
                 <DialogTitle>Edit Asset Details</DialogTitle>
               </DialogHeader>
@@ -932,7 +1184,15 @@ export function Assets() {
                       value={editingAsset.serialNumber}
                       onChange={e => setEditingAsset({ ...editingAsset, serialNumber: e.target.value })}
                     />
-                    <p className="text-[10px] text-muted-foreground">You can edit Asset ID manually.</p>
+                    <p className="text-[10px] text-muted-foreground">Company asset ID format: KTPL-L01, KTPL-P01, KTPL-M01...</p>
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium">Serial Number</label>
+                    <Input
+                      value={editingAsset.deviceSerialNumber || ''}
+                      onChange={e => setEditingAsset({ ...editingAsset, deviceSerialNumber: e.target.value })}
+                    />
+                    <p className="text-[10px] text-muted-foreground">Manufacturer/device serial number.</p>
                   </div>
                   <div className="space-y-2">
                     <label className="text-sm font-medium">Status</label>
@@ -1006,11 +1266,20 @@ export function Assets() {
                   </div>
                   <div className="space-y-2">
                     <label className="text-sm font-medium">Warranty Vendor</label>
-                    <Input
-                      placeholder="e.g. Dell, HP, Lenovo"
-                      value={editingAsset.warrantyVendor || ''}
-                      onChange={e => setEditingAsset({ ...editingAsset, warrantyVendor: e.target.value })}
-                    />
+                    <Select
+                      value={editingAsset.warrantyVendor || '__none__'}
+                      onValueChange={v => setEditingAsset({ ...editingAsset, warrantyVendor: v === '__none__' ? '' : v })}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select warranty vendor" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="__none__">None</SelectItem>
+                        {vendors.map(vendor => (
+                          <SelectItem key={vendor} value={vendor}>{vendor}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
                   </div>
                   <div className="space-y-2">
                     <label className="text-sm font-medium flex items-center gap-2">
@@ -1054,6 +1323,7 @@ export function Assets() {
                         <TableHead>Department</TableHead>
                         <TableHead>Warranty End</TableHead>
                         <TableHead>Asset ID</TableHead>
+                        <TableHead>Serial No.</TableHead>
                         <TableHead>Status</TableHead>
                         <TableHead>Assigned To</TableHead>
                         <TableHead className="text-right">Actions</TableHead>
@@ -1063,12 +1333,12 @@ export function Assets() {
                     {loading ? (
                       [1, 2, 3, 4, 5].map(i => (
                         <TableRow key={i}>
-                          <TableCell colSpan={9}><div className="h-12 bg-muted/50 animate-pulse rounded-lg" /></TableCell>
+                          <TableCell colSpan={10}><div className="h-12 bg-muted/50 animate-pulse rounded-lg" /></TableCell>
                         </TableRow>
                       ))
                     ) : filteredAssets.length === 0 ? (
                       <TableRow>
-                        <TableCell colSpan={9} className="text-center py-12">
+                        <TableCell colSpan={10} className="text-center py-12">
                           <div className="flex flex-col items-center gap-2 text-muted-foreground">
                             <Package className="w-8 h-8 opacity-20" />
                             <p>No assets found.</p>
@@ -1077,7 +1347,7 @@ export function Assets() {
                       </TableRow>
                     ) : (
                       filteredAssets.map((asset) => (
-                        <TableRow key={asset.id} className="hover:bg-muted/20 transition-colors">
+                        <TableRow key={asset.id} className="hover:bg-muted/20 transition-colors" data-testid={`asset-row-${asset.id}`}>
                             <TableCell className="font-semibold">
                               <div className="flex items-center gap-2">
                                 <div className="w-8 h-8 rounded-lg bg-primary/5 flex items-center justify-center text-primary">
@@ -1108,6 +1378,9 @@ export function Assets() {
                           <TableCell className="font-mono text-xs">
                             {asset.serialNumber}
                           </TableCell>
+                          <TableCell className="font-mono text-xs">
+                            {asset.deviceSerialNumber || '-'}
+                          </TableCell>
                           <TableCell>
                             {getStatusBadge(asset.status)}
                           </TableCell>
@@ -1117,7 +1390,7 @@ export function Assets() {
                           <TableCell className="text-right">
                             <DropdownMenu>
                               <DropdownMenuTrigger asChild>
-                                <Button variant="ghost" size="icon" className="h-8 w-8 rounded-full">
+                                <Button variant="ghost" size="icon" className="h-8 w-8 rounded-full" data-testid={`asset-actions-${asset.id}`}>
                                   <MoreVertical className="w-4 h-4" />
                                 </Button>
                               </DropdownMenuTrigger>
@@ -1305,6 +1578,7 @@ export function Assets() {
                             <TableHead>Department</TableHead>
                             <TableHead>Warranty End</TableHead>
                             <TableHead>Asset ID</TableHead>
+                            <TableHead>Serial No.</TableHead>
                             <TableHead>Status</TableHead>
                             <TableHead>Assigned To</TableHead>
                             <TableHead className="text-right">Actions</TableHead>
@@ -1314,12 +1588,12 @@ export function Assets() {
                           {loading ? (
                             [1, 2, 3, 4, 5].map(i => (
                               <TableRow key={i}>
-                                <TableCell colSpan={9}><div className="h-12 bg-muted/50 animate-pulse rounded-lg" /></TableCell>
+                                <TableCell colSpan={10}><div className="h-12 bg-muted/50 animate-pulse rounded-lg" /></TableCell>
                               </TableRow>
                             ))
                           ) : filteredAssets.length === 0 ? (
                             <TableRow>
-                              <TableCell colSpan={9} className="text-center py-12">
+                              <TableCell colSpan={10} className="text-center py-12">
                                 <div className="flex flex-col items-center gap-2 text-muted-foreground">
                                   <Package className="w-8 h-8 opacity-20" />
                                   <p>No assets found.</p>
@@ -1328,7 +1602,7 @@ export function Assets() {
                             </TableRow>
                           ) : (
                             filteredAssets.map((asset) => (
-                              <TableRow key={asset.id} className="hover:bg-muted/20 transition-colors">
+                              <TableRow key={asset.id} className="hover:bg-muted/20 transition-colors" data-testid={`asset-row-${asset.id}`}>
                             <TableCell className="font-semibold">
                               <div className="flex items-center gap-2">
                                 <div className="w-8 h-8 rounded-lg bg-primary/5 flex items-center justify-center text-primary">
@@ -1359,6 +1633,9 @@ export function Assets() {
                                 <TableCell className="font-mono text-xs">
                                   {asset.serialNumber}
                                 </TableCell>
+                                <TableCell className="font-mono text-xs">
+                                  {asset.deviceSerialNumber || '-'}
+                                </TableCell>
                                 <TableCell>
                                   {getStatusBadge(asset.status)}
                                 </TableCell>
@@ -1368,7 +1645,7 @@ export function Assets() {
                                 <TableCell className="text-right">
                                   <DropdownMenu>
                                     <DropdownMenuTrigger asChild>
-                                      <Button variant="ghost" size="icon" className="h-8 w-8 rounded-full">
+                                      <Button variant="ghost" size="icon" className="h-8 w-8 rounded-full" data-testid={`asset-actions-${asset.id}`}>
                                         <MoreVertical className="w-4 h-4" />
                                       </Button>
                                     </DropdownMenuTrigger>
@@ -1471,6 +1748,7 @@ export function Assets() {
                         <TableHead>Department</TableHead>
                         <TableHead>Warranty End</TableHead>
                         <TableHead>Asset ID</TableHead>
+                        <TableHead>Serial No.</TableHead>
                         <TableHead>Status</TableHead>
                         <TableHead>Assigned To</TableHead>
                         <TableHead className="text-right">Actions</TableHead>
@@ -1480,12 +1758,12 @@ export function Assets() {
                       {loading ? (
                         [1, 2, 3, 4, 5].map(i => (
                           <TableRow key={i}>
-                            <TableCell colSpan={9}><div className="h-12 bg-muted/50 animate-pulse rounded-lg" /></TableCell>
+                            <TableCell colSpan={10}><div className="h-12 bg-muted/50 animate-pulse rounded-lg" /></TableCell>
                           </TableRow>
                         ))
                       ) : filteredAssets.length === 0 ? (
                         <TableRow>
-                          <TableCell colSpan={9} className="text-center py-12">
+                          <TableCell colSpan={10} className="text-center py-12">
                             <div className="flex flex-col items-center gap-2 text-muted-foreground">
                               <Package className="w-8 h-8 opacity-20" />
                               <p>No assets found.</p>
@@ -1494,7 +1772,7 @@ export function Assets() {
                         </TableRow>
                       ) : (
                         filteredAssets.map((asset) => (
-                          <TableRow key={asset.id} className="hover:bg-muted/20 transition-colors">
+                          <TableRow key={asset.id} className="hover:bg-muted/20 transition-colors" data-testid={`asset-row-${asset.id}`}>
                             <TableCell className="font-semibold">
                               <div className="flex items-center gap-2">
                                 <div className="w-8 h-8 rounded-lg bg-primary/5 flex items-center justify-center text-primary">
@@ -1525,6 +1803,9 @@ export function Assets() {
                             <TableCell className="font-mono text-xs">
                               {asset.serialNumber}
                             </TableCell>
+                            <TableCell className="font-mono text-xs">
+                              {asset.deviceSerialNumber || '-'}
+                            </TableCell>
                             <TableCell>
                               {getStatusBadge(asset.status)}
                             </TableCell>
@@ -1534,7 +1815,7 @@ export function Assets() {
                             <TableCell className="text-right">
                               <DropdownMenu>
                                 <DropdownMenuTrigger asChild>
-                                  <Button variant="ghost" size="icon" className="h-8 w-8 rounded-full">
+                                  <Button variant="ghost" size="icon" className="h-8 w-8 rounded-full" data-testid={`asset-actions-${asset.id}`}>
                                     <MoreVertical className="w-4 h-4" />
                                   </Button>
                                 </DropdownMenuTrigger>
@@ -1612,7 +1893,7 @@ export function Assets() {
             </DialogContent>
           </Dialog>
           <Dialog open={isImportMapOpen} onOpenChange={setIsImportMapOpen}>
-            <DialogContent className="sm:max-w-[520px]">
+            <DialogContent className="sm:max-w-[520px]" data-testid="asset-import-map-dialog">
               <DialogHeader>
                 <DialogTitle>Map Excel Columns</DialogTitle>
               </DialogHeader>
@@ -1630,7 +1911,7 @@ export function Assets() {
                     ['processor', 'Processor'],
                     ['ram', 'RAM'],
                     ['hdd', 'Storage/HDD'],
-                    ['serviceTag', 'Service Tag'],
+                    ['serviceTag', 'Serial Number'],
                     ['warrantyStart', 'Warranty Start'],
                     ['warrantyEnd', 'Warranty End'],
                     ['warrantyVendor', 'Warranty Vendor'],
@@ -1640,14 +1921,14 @@ export function Assets() {
                     <div key={key} className="space-y-1">
                       <label className="text-xs font-medium">{label}</label>
                       <Select
-                        value={importMapping[key]}
-                        onValueChange={v => setImportMapping(prev => ({ ...prev, [key]: v }))}
+                        value={importMapping[key] || '__none__'}
+                        onValueChange={v => setImportMapping(prev => ({ ...prev, [key]: v === '__none__' ? '' : v }))}
                       >
                         <SelectTrigger>
                           <SelectValue placeholder="Select column" />
                         </SelectTrigger>
                         <SelectContent>
-                          <SelectItem value="">(None)</SelectItem>
+                          <SelectItem value="__none__">(None)</SelectItem>
                           {importHeaders.map(h => (
                             <SelectItem key={h} value={h}>{h}</SelectItem>
                           ))}
@@ -1658,7 +1939,7 @@ export function Assets() {
                 </div>
                 <DialogFooter className="pt-2">
                   <Button variant="outline" onClick={() => setIsImportMapOpen(false)}>Cancel</Button>
-                  <Button onClick={handleMappedImport}>Import</Button>
+                  <Button onClick={handleMappedImport} data-testid="asset-import-confirm">Import</Button>
                 </DialogFooter>
               </div>
             </DialogContent>
@@ -1667,3 +1948,5 @@ export function Assets() {
     </div>
   );
 }
+
+

@@ -13,10 +13,11 @@ import {
 } from '../ui/dropdown-menu'
 import { Button } from '../ui/button'
 import { Avatar, AvatarFallback, AvatarImage } from '../ui/avatar'
+import { normalizeRole } from '../../lib/rbac'
 
 export function Header({ onMenuClick }: { onMenuClick: () => void }) {
   const { user, logout } = useAuth()
-  const { role, isAdmin, isSupport } = useUserRole()
+  const { role, isAdmin } = useUserRole()
   const [loadingNotifications, setLoadingNotifications] = useState(false)
   const [requestNotifications, setRequestNotifications] = useState<AssetRequest[]>([])
 
@@ -30,7 +31,7 @@ export function Header({ onMenuClick }: { onMenuClick: () => void }) {
 
     try {
       setLoadingNotifications(true)
-      if (isAdmin || isSupport) {
+      if (isAdmin) {
         const [pm, boss, it] = await Promise.all([
           requestsClient.list({ status: 'pending_pm', limit: 20 }),
           requestsClient.list({ status: 'pending_boss', limit: 20 }),
@@ -63,9 +64,11 @@ export function Header({ onMenuClick }: { onMenuClick: () => void }) {
   const notificationCount = requestNotifications.length
 
   const dropdownTitle = useMemo(() => {
-    if (isAdmin || isSupport) return 'IT/Admin Notifications'
+    if (isAdmin) return 'IT/Admin Notifications'
     return 'My Notifications'
-  }, [isAdmin, isSupport])
+  }, [isAdmin])
+
+  const roleCode = normalizeRole(role)
 
   return (
     <header className="h-16 border-b bg-background/80 backdrop-blur-md sticky top-0 z-30 px-6 flex items-center justify-between">
@@ -115,7 +118,7 @@ export function Header({ onMenuClick }: { onMenuClick: () => void }) {
                   <span className="text-xs uppercase text-muted-foreground">{req.status.replace(/_/g, ' ')}</span>
                   <span className="text-sm">{req.requestNumber} - {req.requestType}</span>
                   <span className="text-xs text-muted-foreground">
-                    {isAdmin || isSupport ? `Requester: ${req.requesterEmail}` : `Owner: ${req.currentApprovalLevel.toUpperCase()}`}
+                    {isAdmin ? `Requester: ${req.requesterEmail}` : `Owner: ${req.currentApprovalLevel.toUpperCase()}`}
                   </span>
                 </div>
               </DropdownMenuItem>
@@ -139,6 +142,7 @@ export function Header({ onMenuClick }: { onMenuClick: () => void }) {
               <div className="flex flex-col space-y-1">
                 <p className="text-sm font-medium leading-none">{user?.displayName || 'Admin User'}</p>
                 <p className="text-xs leading-none text-muted-foreground">{user?.email}</p>
+                <p className="text-xs leading-none text-primary">{`Role = ${roleCode}`}</p>
               </div>
             </DropdownMenuLabel>
             <DropdownMenuSeparator />

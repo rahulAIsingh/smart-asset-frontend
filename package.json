@@ -7,6 +7,11 @@
                     "dev":  "vite",
                     "build":  "vite build",
                     "preview":  "vite preview",
+                    "test:e2e": "playwright test",
+                    "test:e2e:smoke": "playwright test --grep @smoke",
+                    "test:e2e:edge": "playwright test e2e/api.edge-cases.spec.ts",
+                    "test:e2e:headed": "playwright test --headed",
+                    "test:load:smoke": "k6 run ../load/k6-smoke.js",
                     "db:init-finance-schema":  "node scripts/init-finance-schema.mjs",
                     "lint:css":  "stylelint \"src/**/*.css\" --fix --quiet",
                     "lint:js":  "eslint . --ext ts,tsx --report-unused-disable-directives",
@@ -16,6 +21,7 @@
                     "lint":  "npm run lint:types \u0026\u0026 npm run lint:js \u0026\u0026 npm run lint:css \u0026\u0026 npm run check:css-vars \u0026\u0026 npm run check:css-classes"
                 },
     "devDependencies":  {
+                            "@playwright/test": "^1.52.0",
                             "@typescript-eslint/eslint-plugin":  "^8.54.0",
                             "@typescript-eslint/parser":  "^8.54.0",
                             "eslint":  "^8.57.1",

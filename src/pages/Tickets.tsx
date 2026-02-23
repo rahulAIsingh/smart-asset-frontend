@@ -10,7 +10,9 @@ import {
     User,
     MessageSquare
 } from 'lucide-react'
-import { blink } from '../lib/blink'
+import { dataClient } from '../lib/dataClient'
+import { useAuth } from '../hooks/useAuth'
+import { useUserRole } from '../hooks/useUserRole'
 import { Button } from '../components/ui/button'
 import { Input } from '../components/ui/input'
 import { Textarea } from '../components/ui/textarea'
@@ -46,12 +48,30 @@ import {
 import { toast } from 'sonner'
 
 export function Tickets() {
+    const { user } = useAuth()
+    const { isAdmin, isSupport } = useUserRole()
+    const canManageTickets = isAdmin || isSupport
     const [tickets, setTickets] = useState<any[]>([])
+    const [users, setUsers] = useState<any[]>([])
     const [loading, setLoading] = useState(true)
     const [filterStatus, setFilterStatus] = useState('all')
+    const [filterReporter, setFilterReporter] = useState('all')
+    const [filterDateFrom, setFilterDateFrom] = useState('')
+    const [filterDateTo, setFilterDateTo] = useState('')
+    const [search, setSearch] = useState('')
     const [selectedTicket, setSelectedTicket] = useState<any>(null)
     const [isUpdateOpen, setIsUpdateOpen] = useState(false)
     const [resolutionNote, setResolutionNote] = useState('')
+    const [showReplacementForm, setShowReplacementForm] = useState(false)
+    const [replacementForm, setReplacementForm] = useState({
+        itemName: '',
+        vendorName: '',
+        amount: '',
+        currency: 'INR',
+        requireBossApproval: 'yes',
+        requireItApproval: 'yes',
+        details: ''
+    })
 
     useEffect(() => {
         fetchTickets()
@@ -60,11 +80,15 @@ export function Tickets() {
     const fetchTickets = async () => {
         try {
             console.log('🔍 Fetching tickets from issuances...')
-            const data = await blink.db.issuances.list({ orderBy: { issueDate: 'desc' } })
+            const [data, userRows] = await Promise.all([
+                dataClient.db.issuances.list({ orderBy: { issueDate: 'desc' } }),
+                dataClient.db.users.list()
+            ])
+            setUsers(userRows || [])
             console.log('📝 Loaded data:', data)
 
             // Filter and Unpack ticket records
-            const processedTickets = data
+            let processedTickets = data
                 .filter((t: any) => t && t.status && t.status.startsWith('ticket_'))
                 .map((t: any) => {
                     if (t.userName && t.userName.includes('|||')) {
@@ -82,6 +106,9 @@ export function Tickets() {
                     }
                     return { ...t, packed: false, realUserName: t.userName };
                 });
+            if (!canManageTickets && user?.email) {
+                processedTickets = processedTickets.filter((t: any) => t.userEmail === user.email)
+            }
             setTickets(processedTickets)
         } catch (error) {
             console.error('Failed to fetch tickets', error)
@@ -104,7 +131,7 @@ export function Tickets() {
             parts[5] = resolutionNote;
             const updatedPackedName = parts.join(' ||| ');
 
-            await blink.db.issuances.update(selectedTicket.id, {
+            await dataClient.db.issuances.update(selectedTicket.id, {
                 status: newStatus,
                 userName: updatedPackedName
             })
@@ -112,7 +139,7 @@ export function Tickets() {
             // Auto-log to maintenance history if resolved
             if (newStatus === 'ticket_resolved' && selectedTicket.assetId) {
                 try {
-                    await blink.db.maintenance.create({
+                    await dataClient.db.maintenance.create({
                         assetId: selectedTicket.assetId,
                         type: 'issue',
                         description: `Resolved ticket: ${selectedTicket.category}. Note: ${resolutionNote || 'No notes provided'}`,
@@ -134,6 +161,55 @@ export function Tickets() {
         }
     }
 
+    const resetReplacementForm = () => {
+        setReplacementForm({
+            itemName: '',
+            vendorName: '',
+            amount: '',
+            currency: 'INR',
+            requireBossApproval: 'yes',
+            requireItApproval: 'yes',
+            details: ''
+        })
+    }
+
+    const handleSubmitReplacementApproval = async () => {
+        if (!selectedTicket) return
+        if (!replacementForm.itemName.trim() || !replacementForm.vendorName.trim() || !replacementForm.amount.trim()) {
+            toast.error('Please fill item, vendor and amount')
+            return
+        }
+
+        try {
+            const currentParts = String(selectedTicket.userName || '').split(' ||| ')
+            while (currentParts.length < 6) currentParts.push('')
+            const existingNote = currentParts[5] || ''
+            const approvalBlock = [
+                '[Replacement / Cost Approval]',
+                `Item: ${replacementForm.itemName}`,
+                `Vendor: ${replacementForm.vendorName}`,
+                `Amount: ${replacementForm.amount} ${replacementForm.currency}`,
+                `Boss Approval Required: ${replacementForm.requireBossApproval === 'yes' ? 'Yes' : 'No'}`,
+                `IT Approval Required: ${replacementForm.requireItApproval === 'yes' ? 'Yes' : 'No'}`,
+                `Details: ${replacementForm.details || 'N/A'}`
+            ].join('\n')
+            currentParts[5] = [existingNote, approvalBlock].filter(Boolean).join('\n\n')
+            const updatedPackedName = currentParts.join(' ||| ')
+
+            await dataClient.db.issuances.update(selectedTicket.id, {
+                status: 'ticket_in-progress',
+                userName: updatedPackedName
+            })
+
+            toast.success('Replacement / Cost Approval details added to ticket')
+            setShowReplacementForm(false)
+            resetReplacementForm()
+            fetchTickets()
+        } catch (error: any) {
+            toast.error(`Failed to save replacement approval: ${error?.message || 'Unknown error'}`)
+        }
+    }
+
     const getStatusBadge = (status: string) => {
         switch (status) {
             case 'ticket_open': return <Badge className="bg-red-50 text-red-600 border-red-100">Open</Badge>
@@ -152,9 +228,35 @@ export function Tickets() {
         }
     }
 
-    const filteredTickets = tickets.filter(t =>
-        filterStatus === 'all' || t.status === filterStatus
-    )
+    const reporterOptions = users
+        .filter((u: any) => u?.email)
+        .map((u: any) => ({
+            email: String(u.email).trim().toLowerCase(),
+            label: `${u.name || u.email} (${u.email})`
+        }))
+        .sort((a, b) => a.label.localeCompare(b.label))
+
+    const filteredTickets = tickets.filter(t => {
+        const statusOk = filterStatus === 'all' || t.status === filterStatus
+        const reporterEmail = String(t.userEmail || '').trim().toLowerCase()
+        const reporterOk = filterReporter === 'all' || reporterEmail === filterReporter
+
+        const ticketDate = new Date(t.issueDate || t.createdAt || 0)
+        const fromOk = !filterDateFrom || ticketDate >= new Date(`${filterDateFrom}T00:00:00`)
+        const toOk = !filterDateTo || ticketDate <= new Date(`${filterDateTo}T23:59:59`)
+
+        const q = search.trim().toLowerCase()
+        const searchOk = !q || [
+            t.id,
+            t.category,
+            t.assetName,
+            t.description,
+            t.realUserName,
+            t.userEmail
+        ].some(v => String(v || '').toLowerCase().includes(q))
+
+        return statusOk && reporterOk && fromOk && toOk && searchOk
+    })
 
     return (
         <div className="space-y-6">
@@ -164,10 +266,10 @@ export function Tickets() {
             </div>
 
             <div className="bg-card rounded-2xl border border-border/50 shadow-sm overflow-hidden">
-                <div className="p-4 border-b border-border/50 flex items-center justify-between gap-4">
-                    <div className="flex items-center gap-2">
+                <div className="p-4 border-b border-border/50 flex flex-col xl:flex-row xl:items-center justify-between gap-3">
+                    <div className="flex items-center gap-2 flex-wrap w-full">
                         <Select value={filterStatus} onValueChange={setFilterStatus}>
-                            <SelectTrigger className="w-[180px]">
+                            <SelectTrigger className="w-full sm:w-[180px]">
                                 <SelectValue placeholder="Filter by status" />
                             </SelectTrigger>
                             <SelectContent>
@@ -178,12 +280,52 @@ export function Tickets() {
                                 <SelectItem value="ticket_return">Returns</SelectItem>
                             </SelectContent>
                         </Select>
+                        <Select value={filterReporter} onValueChange={setFilterReporter}>
+                            <SelectTrigger className="w-full sm:w-[220px]">
+                                <SelectValue placeholder="Reported By" />
+                            </SelectTrigger>
+                            <SelectContent>
+                                <SelectItem value="all">All Reporters</SelectItem>
+                                {reporterOptions.map(opt => (
+                                    <SelectItem key={opt.email} value={opt.email}>{opt.label}</SelectItem>
+                                ))}
+                            </SelectContent>
+                        </Select>
+                        <Input
+                            type="date"
+                            value={filterDateFrom}
+                            onChange={(e) => setFilterDateFrom(e.target.value)}
+                            className="w-full sm:w-[160px]"
+                            placeholder="From date"
+                        />
+                        <Input
+                            type="date"
+                            value={filterDateTo}
+                            onChange={(e) => setFilterDateTo(e.target.value)}
+                            className="w-full sm:w-[160px]"
+                            placeholder="To date"
+                        />
+                        <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => {
+                                setFilterStatus('all')
+                                setFilterReporter('all')
+                                setFilterDateFrom('')
+                                setFilterDateTo('')
+                                setSearch('')
+                            }}
+                        >
+                            Reset
+                        </Button>
                     </div>
-                    <div className="relative w-64">
+                    <div className="relative w-full xl:w-64">
                         <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
                         <Input
                             placeholder="Search tickets..."
                             className="pl-10 bg-muted/30 border-none rounded-xl"
+                            value={search}
+                            onChange={(e) => setSearch(e.target.value)}
                         />
                     </div>
                 </div>
@@ -197,7 +339,7 @@ export function Tickets() {
                             <TableHead>Reported By</TableHead>
                             <TableHead>Status</TableHead>
                             <TableHead>Priority</TableHead>
-                            <TableHead className="text-right">Actions</TableHead>
+                                    <TableHead className="text-right">{canManageTickets ? 'Actions' : 'Details'}</TableHead>
                         </TableRow>
                     </TableHeader>
                     <TableBody>
@@ -249,16 +391,23 @@ export function Tickets() {
                                         </div>
                                     </TableCell>
                                     <TableCell className="text-right">
+                                        {canManageTickets ? (
                                         <Button
                                             variant="ghost"
                                             size="sm"
                                             onClick={() => {
                                                 setSelectedTicket(ticket)
+                                                setResolutionNote(ticket.resolutionNote || '')
+                                                setShowReplacementForm(false)
+                                                resetReplacementForm()
                                                 setIsUpdateOpen(true)
                                             }}
                                         >
                                             Manage
                                         </Button>
+                                        ) : (
+                                            <span className="text-xs text-muted-foreground">Ticket History</span>
+                                        )}
                                     </TableCell>
                                 </TableRow>
                             ))
@@ -267,8 +416,8 @@ export function Tickets() {
                 </Table>
             </div>
 
-            <Dialog open={isUpdateOpen} onOpenChange={setIsUpdateOpen}>
-                <DialogContent>
+            <Dialog open={isUpdateOpen && canManageTickets} onOpenChange={setIsUpdateOpen}>
+                <DialogContent className="w-[95vw] sm:max-w-[980px] max-h-[90vh] overflow-y-auto">
                     <DialogHeader>
                         <DialogTitle>Update Ticket Status</DialogTitle>
                     </DialogHeader>
@@ -323,6 +472,82 @@ export function Tickets() {
                                     Resolved
                                 </Button>
                             </div>
+
+                            <div className="pt-2 border-t">
+                                <Button
+                                    variant="outline"
+                                    className="w-full"
+                                    onClick={() => setShowReplacementForm(v => !v)}
+                                >
+                                    Replacement / Cost Approval
+                                </Button>
+                            </div>
+
+                            {showReplacementForm && (
+                                <div className="rounded-lg border p-4 bg-muted/10 space-y-3">
+                                    <h3 className="text-sm font-semibold">Replacement / Cost Approval Request</h3>
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                        <Input
+                                            placeholder="Part/Item (e.g. Motherboard)"
+                                            value={replacementForm.itemName}
+                                            onChange={(e) => setReplacementForm(prev => ({ ...prev, itemName: e.target.value }))}
+                                        />
+                                        <Input
+                                            placeholder="Vendor name"
+                                            value={replacementForm.vendorName}
+                                            onChange={(e) => setReplacementForm(prev => ({ ...prev, vendorName: e.target.value }))}
+                                        />
+                                        <Input
+                                            placeholder="Amount"
+                                            value={replacementForm.amount}
+                                            onChange={(e) => setReplacementForm(prev => ({ ...prev, amount: e.target.value }))}
+                                        />
+                                        <Select
+                                            value={replacementForm.currency}
+                                            onValueChange={(v) => setReplacementForm(prev => ({ ...prev, currency: v }))}
+                                        >
+                                            <SelectTrigger><SelectValue placeholder="Currency" /></SelectTrigger>
+                                            <SelectContent>
+                                                <SelectItem value="INR">INR</SelectItem>
+                                                <SelectItem value="USD">USD</SelectItem>
+                                                <SelectItem value="EUR">EUR</SelectItem>
+                                            </SelectContent>
+                                        </Select>
+                                        <Select
+                                            value={replacementForm.requireBossApproval}
+                                            onValueChange={(v) => setReplacementForm(prev => ({ ...prev, requireBossApproval: v }))}
+                                        >
+                                            <SelectTrigger><SelectValue placeholder="Boss Approval Required" /></SelectTrigger>
+                                            <SelectContent>
+                                                <SelectItem value="yes">Boss Approval Required: Yes</SelectItem>
+                                                <SelectItem value="no">Boss Approval Required: No</SelectItem>
+                                            </SelectContent>
+                                        </Select>
+                                        <Select
+                                            value={replacementForm.requireItApproval}
+                                            onValueChange={(v) => setReplacementForm(prev => ({ ...prev, requireItApproval: v }))}
+                                        >
+                                            <SelectTrigger><SelectValue placeholder="IT Approval Required" /></SelectTrigger>
+                                            <SelectContent>
+                                                <SelectItem value="yes">IT Approval Required: Yes</SelectItem>
+                                                <SelectItem value="no">IT Approval Required: No</SelectItem>
+                                            </SelectContent>
+                                        </Select>
+                                        <div className="md:col-span-2">
+                                            <Textarea
+                                                rows={3}
+                                                placeholder="Technical details / vendor quote note"
+                                                value={replacementForm.details}
+                                                onChange={(e) => setReplacementForm(prev => ({ ...prev, details: e.target.value }))}
+                                            />
+                                        </div>
+                                    </div>
+                                    <DialogFooter>
+                                        <Button variant="outline" onClick={() => { setShowReplacementForm(false); resetReplacementForm() }}>Cancel</Button>
+                                        <Button onClick={handleSubmitReplacementApproval}>Submit Replacement Approval</Button>
+                                    </DialogFooter>
+                                </div>
+                            )}
                         </div>
                     )}
                 </DialogContent>
@@ -330,3 +555,4 @@ export function Tickets() {
         </div >
     )
 }
+

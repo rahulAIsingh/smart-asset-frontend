@@ -1,4 +1,4 @@
-﻿import React, { useEffect, useState } from 'react'
+import React, { useEffect, useState } from 'react'
 import {
   Plus,
   Search,
@@ -10,7 +10,7 @@ import {
   Calendar,
   Laptop
 } from 'lucide-react'
-import { blink } from '../lib/blink'
+import { dataClient } from '../lib/dataClient'
 import { Button } from '../components/ui/button'
 import { Input } from '../components/ui/input'
 import { Badge } from '../components/ui/badge'
@@ -43,6 +43,7 @@ import { Card, CardContent } from '../components/ui/card'
 export function Issuance() {
   const [issuances, setIssuances] = useState<any[]>([])
   const [availableAssets, setAvailableAssets] = useState<any[]>([])
+  const [users, setUsers] = useState<any[]>([])
   const [assetMap, setAssetMap] = useState<Record<string, any>>({})
   const [loading, setLoading] = useState(true)
   const [isIssueOpen, setIsIssueOpen] = useState(false)
@@ -70,15 +71,17 @@ export function Issuance() {
 
   const fetchData = async () => {
     try {
-      const [issueData, allAssets] = await Promise.all([
-        blink.db.issuances.list({ orderBy: { createdAt: 'desc' } }),
-        blink.db.assets.list()
+      const [issueData, allAssets, allUsers] = await Promise.all([
+        dataClient.db.issuances.list({ orderBy: { createdAt: 'desc' } }),
+        dataClient.db.assets.list(),
+        dataClient.db.users.list()
       ])
       const assetData = allAssets.filter((a: any) => a.status === 'available')
       // Filter out tickets from the issuances list
       const filteredIssuances = issueData.filter((i: any) => i.status === 'active')
       setIssuances(filteredIssuances)
       setAvailableAssets(assetData)
+      setUsers((allUsers || []).filter((u: any) => u?.email && String(u.email).includes('@')))
       const map: Record<string, any> = {}
       allAssets.forEach((a: any) => {
         map[a.id] = a
@@ -96,7 +99,7 @@ export function Issuance() {
     if (!issueForm.assetId) return toast.error('Please select an asset')
 
     try {
-      const existingActive = await blink.db.issuances.list({
+      const existingActive = await dataClient.db.issuances.list({
         where: { assetId: issueForm.assetId, status: 'active' },
         limit: 1
       })
@@ -106,20 +109,27 @@ export function Issuance() {
       }
 
       const selectedAsset = availableAssets.find(a => a.id === issueForm.assetId)
+      const selectedAssetMeta = selectedAsset ? getAssetMeta(selectedAsset) : { title: '', company: '', model: '', department: '' }
+      const selectedPacked = unpackLocation(selectedAsset?.location || '')
+      const selectedConfig = (
+        selectedAsset?.configuration ||
+        selectedPacked.configuration ||
+        ''
+      ).trim()
 
       // 1. Create issuance record
-      await blink.db.issuances.create({
+      await dataClient.db.issuances.create({
         ...issueForm,
         issueDate: new Date().toISOString(),
         status: 'active'
       })
 
       // 2. Update asset status AND assignment info
-      await blink.db.assets.update(issueForm.assetId, {
+      await dataClient.db.assets.update(issueForm.assetId, {
         status: 'issued'
       })
 
-      await blink.db.stockTransactions.create({
+      await dataClient.db.stockTransactions.create({
         assetId: issueForm.assetId,
         type: 'out',
         quantity: 1,
@@ -127,7 +137,7 @@ export function Issuance() {
         createdAt: new Date().toISOString()
       })
 
-      await blink.db.maintenance.create({
+      await dataClient.db.maintenance.create({
         assetId: issueForm.assetId,
         type: 'assignment',
         description: `Issued to ${issueForm.userName} (${issueForm.userEmail})`,
@@ -135,31 +145,56 @@ export function Issuance() {
         performedBy: 'System (Auto-log)'
       })
 
-      // 3. Send email notification
-      await blink.notifications.email({
-        to: issueForm.userEmail,
-        subject: `Asset Handover: ${selectedAsset.name}`,
-        html: `
-          <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto; border: 1px solid #e2e8f0; border-radius: 12px; overflow: hidden;">
-            <div style="background: #0d9488; padding: 24px; color: white;">
-              <h1 style="margin: 0; font-size: 24px;">Asset Handover Confirmation</h1>
-            </div>
-            <div style="padding: 24px; color: #1e293b;">
-              <p>Hello <strong>${issueForm.userName}</strong>,</p>
-              <p>This is to confirm that the following IT asset has been issued to you:</p>
-              <div style="background: #f8fafc; padding: 16px; border-radius: 8px; margin: 20px 0;">
-                <p style="margin: 4px 0;"><strong>Asset:</strong> ${selectedAsset.name}</p>
-                <p style="margin: 4px 0;"><strong>Serial Number:</strong> ${selectedAsset.serialNumber}</p>
-                <p style="margin: 4px 0;"><strong>Issue Date:</strong> ${new Date().toLocaleDateString()}</p>
+      // 3. Send email notification (non-blocking: issuance should still complete if email fails)
+      let emailSent = false
+      try {
+        await dataClient.notifications.email({
+          to: issueForm.userEmail,
+          subject: `Asset Handover: ${selectedAssetMeta.title || selectedAsset?.name || issueForm.assetId}`,
+          html: `
+            <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto; border: 1px solid #e2e8f0; border-radius: 12px; overflow: hidden;">
+              <div style="background: #0d9488; padding: 24px; color: white;">
+                <h1 style="margin: 0; font-size: 24px;">Asset Handover Confirmation</h1>
               </div>
-              <p>Please ensure proper care of the company property. If you have any issues, please contact the IT support team.</p>
-              <p style="margin-top: 32px; font-size: 14px; color: #64748b;">Best regards,<br>IT Asset Management Team</p>
+              <div style="padding: 24px; color: #1e293b;">
+                <p>Hello <strong>${issueForm.userName}</strong>,</p>
+                <p>This is to confirm that the following IT asset has been issued to you:</p>
+                <div style="background: #f8fafc; padding: 16px; border-radius: 8px; margin: 20px 0;">
+                  <p style="margin: 4px 0;"><strong>Asset:</strong> ${selectedAssetMeta.title || selectedAsset?.name || '-'}</p>
+                  <p style="margin: 4px 0;"><strong>Asset ID:</strong> ${selectedAsset?.serialNumber || '-'}</p>
+                  <p style="margin: 4px 0;"><strong>Serial Number:</strong> ${selectedAsset?.deviceSerialNumber || '-'}</p>
+                  <p style="margin: 4px 0;"><strong>Issue Date:</strong> ${new Date().toLocaleDateString()}</p>
+                  <p style="margin: 4px 0;"><strong>Company:</strong> ${selectedAssetMeta.company || '-'}</p>
+                  <p style="margin: 4px 0;"><strong>Model:</strong> ${selectedAssetMeta.model || '-'}</p>
+                  <p style="margin: 4px 0;"><strong>Department:</strong> ${selectedAssetMeta.department || '-'}</p>
+                  <p style="margin: 4px 0;"><strong>Configuration:</strong> ${selectedConfig || '-'}</p>
+                </div>
+                <p style="margin: 16px 0 8px 0;"><strong>The laptop issued to you with the below-mentioned understanding:</strong></p>
+                <ul style="margin: 0 0 0 18px; padding: 0; color: #1e293b; line-height: 1.6;">
+                  <li style="margin: 6px 0;">The laptop issued is for solely official purposes.</li>
+                  <li style="margin: 6px 0;">The employee shall be fully accountable for theft and loss to the property.</li>
+                  <li style="margin: 6px 0;">Any additional software or hardware required by employees (before or after taking handover) is clearly communicated through mail to the Systems Admin. Management is at the sole discretion of approving such requests.</li>
+                  <li style="margin: 6px 0;">In case of any malfunction, employees are required to report the same to the Systems Admin (<a href="mailto:k.manish@kavitechsolution.com" style="color:#0d9488;">k.manish@kavitechsolution.com</a>).</li>
+                  <li style="margin: 6px 0;">Employees may not take the laptop for repair to any external agency or vendor at any point in time.</li>
+                  <li style="margin: 6px 0;">The laptop must be returned to the Systems Admin Department if it leaves the organization or does not intend to use it for any reason.</li>
+                </ul>
+                <p>Please ensure proper care of the company property. If you have any issues, please contact the IT support team.</p>
+                <p style="margin-top: 32px; font-size: 14px; color: #64748b;">Best regards,<br>IT Asset Management Team</p>
+              </div>
             </div>
-          </div>
-        `
-      })
+          `
+        })
+        emailSent = true
+      } catch (emailError) {
+        console.error('Issuance completed but email failed:', emailError)
+      }
 
-      toast.success('Asset issued and email sent!')
+      if (emailSent) {
+        toast.success('Asset issued and email sent!')
+      } else {
+        toast.success('Asset issued successfully')
+        toast.warning('Email notification failed. Please check SMTP/O365 mailbox settings.')
+      }
       setIsIssueOpen(false)
       setIssueForm({ assetId: '', userName: '', userEmail: '' })
       fetchData()
@@ -180,17 +215,17 @@ export function Issuance() {
 
     try {
       // 1. Update issuance status
-      await blink.db.issuances.update(issuance.id, {
+      await dataClient.db.issuances.update(issuance.id, {
         status: 'returned',
         returnDate: new Date().toISOString()
       })
 
       // 2. Update asset status AND clear assignment info
-      await blink.db.assets.update(issuance.assetId, {
+      await dataClient.db.assets.update(issuance.assetId, {
         status: 'available'
       })
 
-      await blink.db.stockTransactions.create({
+      await dataClient.db.stockTransactions.create({
         assetId: issuance.assetId,
         type: 'in',
         quantity: 1,
@@ -198,7 +233,7 @@ export function Issuance() {
         createdAt: new Date().toISOString()
       })
 
-      await blink.db.maintenance.create({
+      await dataClient.db.maintenance.create({
         assetId: issuance.assetId,
         type: 'assignment',
         description: `Returned by ${issuance.userName} (${issuance.userEmail})`,
@@ -222,13 +257,44 @@ export function Issuance() {
     }
 
     try {
-      await blink.db.issuances.delete(issuance.id)
+      await dataClient.db.issuances.delete(issuance.id)
       toast.success('Issuance record deleted')
       fetchData()
     } catch (error) {
       toast.error('Error deleting issuance record')
     }
   }
+
+  const unpackLocation = (packed?: string) => {
+    if (!packed) return { location: '', configuration: '' }
+    if (packed.includes(' ||| ')) {
+      const [location, ...rest] = packed.split(' ||| ')
+      return { location: location || '', configuration: rest.join(' ||| ') || '' }
+    }
+    return { location: packed, configuration: '' }
+  }
+
+  const extractFromConfig = (config: string, label: string) => {
+    const match = config.match(new RegExp(`${label}:\\s*([^|]+)`, 'i'))
+    return match ? match[1].trim() : ''
+  }
+
+  const getAssetMeta = (asset: any) => {
+    const { configuration } = unpackLocation(asset?.location || '')
+    const company = (asset?.company || extractFromConfig(configuration, 'Company') || '').trim()
+    const model = (asset?.model || extractFromConfig(configuration, 'Model') || '').trim()
+    const department = (asset?.department || extractFromConfig(configuration, 'Department') || '').trim()
+    const title = [company, model].filter(Boolean).join(' ').trim() || asset?.name || `Asset ${asset?.serialNumber || ''}`.trim()
+    return { title, company, model, department }
+  }
+
+  const selectedIssueAsset = availableAssets.find(a => a.id === issueForm.assetId)
+  const userChoices = users
+    .map((u: any) => ({
+      name: (u.name || u.displayName || String(u.email).split('@')[0]).trim(),
+      email: String(u.email).trim().toLowerCase()
+    }))
+    .sort((a, b) => a.name.localeCompare(b.name))
 
   return (
     <div className="space-y-8">
@@ -245,12 +311,12 @@ export function Issuance() {
               New Issuance
             </Button>
           </DialogTrigger>
-          <DialogContent className="sm:max-w-[500px]">
-            <DialogHeader>
+          <DialogContent className="w-[96vw] max-w-[1040px] max-h-[90vh] overflow-hidden p-0">
+            <DialogHeader className="px-6 py-4 border-b">
               <DialogTitle>Issue New Asset</DialogTitle>
             </DialogHeader>
-            <form onSubmit={handleIssueAsset} className="space-y-4 py-4">
-              <div className="space-y-2">
+            <form onSubmit={handleIssueAsset} className="grid grid-cols-1 lg:grid-cols-2 gap-4 px-6 py-4 overflow-y-auto max-h-[calc(90vh-84px)]">
+              <div className="space-y-2 lg:col-span-2">
                 <label className="text-sm font-medium">Select Available Asset</label>
                 <Select
                   value={issueForm.assetId}
@@ -265,10 +331,17 @@ export function Issuance() {
                     ) : (
                       availableAssets.map(asset => (
                         <SelectItem key={asset.id} value={asset.id}>
-                          <div className="flex flex-col">
-                          <span className="font-medium">{asset.company || 'Other'} {asset.model || ''}</span>
-                          <span className="text-xs opacity-50">Asset ID: {asset.serialNumber} â€¢ {asset.department || 'â€”'}</span>
-                        </div>
+                          {(() => {
+                            const meta = getAssetMeta(asset)
+                            return (
+                              <div className="flex flex-col">
+                                <span className="font-medium">{meta.title}</span>
+                                <span className="text-xs opacity-50">
+                                  Model: {meta.model || '-'} | Asset ID: {asset.serialNumber || '-'} | Serial: {asset.deviceSerialNumber || '-'}
+                                </span>
+                              </div>
+                            )
+                          })()}
                       </SelectItem>
                     ))
                   )}
@@ -276,44 +349,100 @@ export function Issuance() {
                 </Select>
               </div>
 
-              <div className="grid grid-cols-1 gap-4">
-                <div className="space-y-2">
-                  <label className="text-sm font-medium">Employee Name</label>
-                  <div className="relative">
-                    <User className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+              {selectedIssueAsset && (
+                <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4 lg:col-span-2">
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium">Asset ID</label>
                     <Input
-                      required
-                      className="pl-10 h-12 rounded-xl"
-                      placeholder="e.g. John Doe"
-                      value={issueForm.userName}
-                      onChange={e => setIssueForm({ ...issueForm, userName: e.target.value })}
+                      readOnly
+                      value={selectedIssueAsset.serialNumber || '-'}
+                      className="h-12 rounded-xl bg-muted/30"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium">Serial Number</label>
+                    <Input
+                      readOnly
+                      value={selectedIssueAsset.deviceSerialNumber || '-'}
+                      className="h-12 rounded-xl bg-muted/30"
+                    />
+                  </div>
+                  <div className="space-y-2 md:col-span-2 xl:col-span-1">
+                    <label className="text-sm font-medium">Department</label>
+                    <Input
+                      readOnly
+                      value={(selectedIssueAsset ? getAssetMeta(selectedIssueAsset).department : '') || '-'}
+                      className="h-12 rounded-xl bg-muted/30"
                     />
                   </div>
                 </div>
-                <div className="space-y-2">
-                  <label className="text-sm font-medium">Employee Email</label>
-                  <div className="relative">
-                    <Mail className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
-                    <Input
-                      required
-                      type="email"
-                      className="pl-10 h-12 rounded-xl"
-                      placeholder="john.doe@company.com"
-                      value={issueForm.userEmail}
-                      onChange={e => setIssueForm({ ...issueForm, userEmail: e.target.value })}
-                    />
-                  </div>
+              )}
+
+              <div className="space-y-2">
+                <label className="text-sm font-medium">Select Employee</label>
+                <Select
+                  value={issueForm.userEmail || '__manual__'}
+                  onValueChange={(v) => {
+                    if (v === '__manual__') {
+                      setIssueForm({ ...issueForm, userName: '', userEmail: '' })
+                      return
+                    }
+                    const selected = userChoices.find(u => u.email === v)
+                    if (selected) {
+                      setIssueForm({ ...issueForm, userName: selected.name, userEmail: selected.email })
+                    }
+                  }}
+                >
+                  <SelectTrigger className="h-12 rounded-xl">
+                    <SelectValue placeholder="Pick from existing users" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__manual__">Manual Entry</SelectItem>
+                    {userChoices.map((u) => (
+                      <SelectItem key={u.email} value={u.email}>
+                        {u.name} ({u.email})
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-2">
+                <label className="text-sm font-medium">Employee Name</label>
+                <div className="relative">
+                  <User className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+                  <Input
+                    required
+                    className="pl-10 h-12 rounded-xl"
+                    placeholder="e.g. John Doe"
+                    value={issueForm.userName}
+                    onChange={e => setIssueForm({ ...issueForm, userName: e.target.value })}
+                  />
+                </div>
+              </div>
+              <div className="space-y-2 lg:col-span-2">
+                <label className="text-sm font-medium">Employee Email</label>
+                <div className="relative">
+                  <Mail className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+                  <Input
+                    required
+                    type="email"
+                    className="pl-10 h-12 rounded-xl"
+                    placeholder="john.doe@company.com"
+                    value={issueForm.userEmail}
+                    onChange={e => setIssueForm({ ...issueForm, userEmail: e.target.value })}
+                  />
                 </div>
               </div>
 
-              <div className="bg-primary/5 p-4 rounded-xl border border-primary/10 flex gap-3 items-start mt-2">
+              <div className="bg-primary/5 p-4 rounded-xl border border-primary/10 flex gap-3 items-start mt-2 lg:col-span-2">
                 <Clock className="w-5 h-5 text-primary shrink-0 mt-0.5" />
                 <p className="text-xs text-primary/80 leading-relaxed">
                   The employee will receive an automated email notification regarding this issuance.
                 </p>
               </div>
 
-              <DialogFooter className="pt-4">
+              <DialogFooter className="pt-2 lg:col-span-2">
                 <Button type="submit" className="w-full h-12 rounded-xl text-lg shadow-lg shadow-primary/20">Confirm Issuance</Button>
               </DialogFooter>
             </form>
@@ -327,6 +456,8 @@ export function Issuance() {
             <TableRow className="bg-muted/30">
               <TableHead className="w-[250px]">Employee</TableHead>
               <TableHead>Asset Details</TableHead>
+              <TableHead>Asset ID</TableHead>
+              <TableHead>Serial No.</TableHead>
               <TableHead>Issue Date</TableHead>
               <TableHead>Return Date</TableHead>
               <TableHead>Status</TableHead>
@@ -337,12 +468,12 @@ export function Issuance() {
             {loading ? (
               [1, 2, 3, 4].map(i => (
                 <TableRow key={i}>
-                  <TableCell colSpan={6}><div className="h-12 bg-muted/50 animate-pulse rounded-lg" /></TableCell>
+                  <TableCell colSpan={8}><div className="h-12 bg-muted/50 animate-pulse rounded-lg" /></TableCell>
                 </TableRow>
               ))
             ) : issuances.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={6} className="text-center py-12">
+                <TableCell colSpan={8} className="text-center py-12">
                   <div className="flex flex-col items-center gap-2 text-muted-foreground">
                     <ArrowLeftRight className="w-8 h-8 opacity-20" />
                     <p>No issuance records found.</p>
@@ -366,20 +497,27 @@ export function Issuance() {
                   <TableCell>
                     {(() => {
                       const asset = assetMap[issuance.assetId]
+                      const meta = asset ? getAssetMeta(asset) : null
                       return (
                         <div className="flex items-center gap-2">
                           <Laptop className="w-4 h-4 text-muted-foreground" />
                           <div className="flex flex-col">
                             <span className="text-sm font-medium">
-                              {asset ? `${asset.company || 'Other'} ${asset.model || ''}` : `Asset ID: ${issuance.assetId.split('_').pop()}`}
+                              {asset ? meta?.title : `Asset ID: ${issuance.assetId.split('_').pop()}`}
                             </span>
                             <span className="text-xs text-muted-foreground">
-                              {asset ? `Asset ID: ${asset.serialNumber} â€¢ ${asset.department || 'â€”'}` : ''}
+                              {asset ? `Model: ${meta?.model || '-'} | ${meta?.department || '-'}` : ''}
                             </span>
                           </div>
                         </div>
                       )
                     })()}
+                  </TableCell>
+                  <TableCell className="text-xs font-mono text-muted-foreground">
+                    {assetMap[issuance.assetId]?.serialNumber || '-'}
+                  </TableCell>
+                  <TableCell className="text-xs font-mono text-muted-foreground">
+                    {assetMap[issuance.assetId]?.deviceSerialNumber || '-'}
                   </TableCell>
                   <TableCell>
                     <div className="flex items-center gap-2 text-sm text-muted-foreground">
@@ -388,7 +526,7 @@ export function Issuance() {
                     </div>
                   </TableCell>
                   <TableCell className="text-sm text-muted-foreground">
-                    {issuance.returnDate ? new Date(issuance.returnDate).toLocaleDateString() : 'â€”'}
+                    {issuance.returnDate ? new Date(issuance.returnDate).toLocaleDateString() : '-'}
                   </TableCell>
                   <TableCell>
                     <Badge className={issuance.status === 'active'
@@ -430,4 +568,5 @@ export function Issuance() {
     </div>
   )
 }
+
 

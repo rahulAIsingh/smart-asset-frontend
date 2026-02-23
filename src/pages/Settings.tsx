@@ -10,10 +10,39 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../co
 import { Switch } from '../components/ui/switch'
 import { Button } from '../components/ui/button'
 import { useAuth } from '../hooks/useAuth'
+import { dataClient } from '../lib/dataClient'
+import { toast } from 'sonner'
 
 export function Settings() {
   const { user } = useAuth()
   const [activeTab, setActiveTab] = useState('profile')
+  const [testEmailTo, setTestEmailTo] = useState((user?.email || '').trim())
+  const [testingEmail, setTestingEmail] = useState(false)
+  const [emailTestResult, setEmailTestResult] = useState<string>('')
+
+  const runEmailTest = async () => {
+    const to = testEmailTo.trim()
+    if (!to || !to.includes('@')) {
+      toast.error('Enter a valid test email address')
+      return
+    }
+
+    setTestingEmail(true)
+    setEmailTestResult('')
+    try {
+      const result = await dataClient.notifications.testEmail({ to })
+      setEmailTestResult(result?.message || 'Test email sent successfully.')
+      toast.success(result?.message || 'Test email sent successfully.')
+    } catch (error: any) {
+      const detail = error?.detail || error?.message || 'Unknown email error'
+      const inner = error?.inner ? ` | ${error.inner}` : ''
+      const full = `${detail}${inner}`
+      setEmailTestResult(`Failed: ${full}`)
+      toast.error(`Email test failed: ${full}`)
+    } finally {
+      setTestingEmail(false)
+    }
+  }
 
   const renderContent = () => {
     switch (activeTab) {
@@ -57,7 +86,7 @@ export function Settings() {
                 <CardTitle>Notifications</CardTitle>
                 <CardDescription>Choose how you want to be notified about asset events.</CardDescription>
               </CardHeader>
-              <CardContent className="space-y-4">
+              <CardContent className="space-y-5">
                 <div className="flex items-center justify-between p-4 bg-muted/20 rounded-xl">
                   <div className="flex items-center gap-3">
                     <Mail className="w-5 h-5 text-primary" />
@@ -67,6 +96,30 @@ export function Settings() {
                     </div>
                   </div>
                   <Switch defaultChecked />
+                </div>
+
+                <div className="p-4 bg-muted/20 rounded-xl space-y-3 border border-border/50">
+                  <p className="text-sm font-semibold">SMTP Test</p>
+                  <p className="text-xs text-muted-foreground">Send a test mail and view exact SMTP error details.</p>
+                  <div className="flex flex-col sm:flex-row gap-2">
+                    <input
+                      className="w-full px-4 py-2 bg-background border border-border rounded-xl text-sm"
+                      placeholder="recipient@company.com"
+                      value={testEmailTo}
+                      onChange={(e) => setTestEmailTo(e.target.value)}
+                    />
+                    <Button
+                      type="button"
+                      className="rounded-xl"
+                      onClick={runEmailTest}
+                      disabled={testingEmail}
+                    >
+                      {testingEmail ? 'Testing...' : 'Send Test Email'}
+                    </Button>
+                  </div>
+                  {emailTestResult ? (
+                    <p className="text-xs text-muted-foreground break-all">{emailTestResult}</p>
+                  ) : null}
                 </div>
               </CardContent>
             </Card>

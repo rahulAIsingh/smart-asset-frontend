@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { blink } from '../lib/blink'
+import { dataClient } from '../lib/dataClient'
 import { toast } from 'sonner'
 
 const STORAGE_KEY = 'sam_departments'
@@ -47,7 +47,7 @@ export function useDepartments() {
     setStoredDepartments(local)
 
     try {
-      const rows = await blink.db.departments.list({ orderBy: { name: 'asc' } }) as Array<{ name?: string }>
+      const rows = await dataClient.db.departments.list({ orderBy: { name: 'asc' } }) as Array<{ name?: string }>
       const names = rows.map(r => normalize(String(r.name || ''))).filter(Boolean)
       const next = names.length > 0 ? names : local
       setDepartments(next)
@@ -74,7 +74,7 @@ export function useDepartments() {
       const next = exists ? prev : [...prev, nextName]
       setStoredDepartments(next)
       if (!exists && !dbUnavailable) {
-        blink.db.departments.create({ name: nextName }).catch(() => setDbUnavailable(true))
+        dataClient.db.departments.create({ name: nextName }).catch(() => setDbUnavailable(true))
       }
       return next
     })
@@ -88,9 +88,9 @@ export function useDepartments() {
         toast.success('Department removed')
       }
       if (next.length !== prev.length && !dbUnavailable) {
-        blink.db.departments.list({ where: { name }, limit: 1 })
+        dataClient.db.departments.list({ where: { name }, limit: 1 })
           .then((rows: Array<{ id: string }>) => {
-            if (rows[0]?.id) return blink.db.departments.delete(rows[0].id)
+            if (rows[0]?.id) return dataClient.db.departments.delete(rows[0].id)
           })
           .catch(() => setDbUnavailable(true))
       }
@@ -102,3 +102,4 @@ export function useDepartments() {
 
   return { departments: sorted, addDepartment, removeDepartment }
 }
+

@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react'
-import { blink } from '../lib/blink'
+import { dataClient } from '../lib/dataClient'
 import {
     Table,
     TableBody,
@@ -82,16 +82,16 @@ export function AssetHistory({ assetId, assetName, serialNumber }: { assetId: st
             let allTickets: TicketLog[] = []
 
             try {
-                allLogs = await blink.db.maintenance.list({ where: { assetId } }) as MaintenanceLog[]
+                allLogs = await dataClient.db.maintenance.list({ where: { assetId } }) as MaintenanceLog[]
             } catch (err) {
                 console.error('Failed to load maintenance logs:', err)
             }
 
             try {
-                allTickets = await blink.db.issuances.list({ where: { assetId } }) as TicketLog[]
+                allTickets = await dataClient.db.issuances.list({ where: { assetId } }) as TicketLog[]
                 if (allTickets.length === 0 && (assetName || serialNumber)) {
                     // Fallback for legacy ticket records that may have missing/incorrect assetId.
-                    allTickets = await blink.db.issuances.list() as TicketLog[]
+                    allTickets = await dataClient.db.issuances.list() as TicketLog[]
                 }
             } catch (err) {
                 console.error('Failed to load ticket logs:', err)
@@ -158,7 +158,7 @@ export function AssetHistory({ assetId, assetName, serialNumber }: { assetId: st
     const handleAddLog = async (e: React.FormEvent) => {
         e.preventDefault()
         try {
-            await blink.db.maintenance.create({
+            await dataClient.db.maintenance.create({
                 assetId,
                 type: newLog.type,
                 description: newLog.description,
@@ -271,3 +271,4 @@ export function AssetHistory({ assetId, assetName, serialNumber }: { assetId: st
         </div>
     )
 }
+

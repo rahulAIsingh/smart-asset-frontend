@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import * as XLSX from 'xlsx'
 import { ArrowDownCircle, ArrowUpCircle, Calendar, Package, TrendingDown, TrendingUp } from 'lucide-react'
-import { blink } from '../lib/blink'
+import { dataClient } from '../lib/dataClient'
 import { useAuth } from '../hooks/useAuth'
 import { useCategories } from '../hooks/useCategories'
 import { useVendors } from '../hooks/useVendors'
@@ -23,6 +23,7 @@ type TxMeta = {
   schema: 'stock-v2'
   category: string
   itemName: string
+  serialNumber?: string
   location: string
   transactionDate: string
   note: string
@@ -57,6 +58,7 @@ type SummaryRow = {
   key: string
   category: string
   itemName: string
+  serialNumber?: string
   location: string
   qty: number
   unitCost: number
@@ -64,7 +66,7 @@ type SummaryRow = {
 }
 
 type AssetRow = { id: string; serialNumber?: string }
-type OutSummaryRow = { key: string; category: string; itemName: string; fromLocation: string; toLocation: string; reasonType: string; qty: number }
+type OutSummaryRow = { key: string; category: string; itemName: string; serialNumber?: string; fromLocation: string; toLocation: string; reasonType: string; qty: number }
 
 const V2 = 'v2|'
 const LEGACY = 'STOCK_META::'
@@ -78,7 +80,7 @@ const OUT_REASON_OPTIONS: Array<{ value: StockOutType; label: string }> = [
 ]
 
 const money = (n: number) => new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR' }).format(n || 0)
-const keyOf = (c: string, i: string, l: string) => `${c.trim().toLowerCase()}||${i.trim().toLowerCase()}||${l.trim().toLowerCase()}`
+const keyOf = (c: string, i: string, l: string, s?: string) => `${c.trim().toLowerCase()}||${i.trim().toLowerCase()}||${l.trim().toLowerCase()}||${(s || '').trim().toLowerCase()}`
 const toIso = (d: string) => { const x = new Date(`${d}T00:00:00`); return Number.isNaN(x.getTime()) ? new Date().toISOString() : x.toISOString() }
 const dateOnly = (iso: string) => { const d = new Date(iso); return Number.isNaN(d.getTime()) ? new Date().toISOString().slice(0, 10) : d.toISOString().slice(0, 10) }
 const enc = (v?: string) => encodeURIComponent((v || '').trim())
@@ -99,6 +101,7 @@ const errMsg = (e: unknown) => {
 
 const buildMeta = (m: TxMeta) => {
   const parts = [`${V2}c=${enc(m.category)}`, `i=${enc(m.itemName)}`, `l=${enc(m.location)}`, `d=${enc(m.transactionDate)}`, `n=${enc(m.note)}`, `by=${enc(m.createdBy)}`, `cd=${enc(m.createdDate)}`]
+  if (m.serialNumber) parts.push(`sn=${enc(m.serialNumber)}`)
   if (m.vendor) parts.push(`v=${enc(m.vendor)}`)
   if (m.referenceNumber) parts.push(`r=${enc(m.referenceNumber)}`)
   if (m.reason) parts.push(`rs=${enc(m.reason)}`)
@@ -126,7 +129,7 @@ const parseMeta = (reason: string): TxMeta | null => {
     const u = rec.u ? parseFloat(rec.u) : undefined
     const t = rec.t ? parseFloat(rec.t) : undefined
     const q = rec.q ? parseInt(rec.q, 10) : undefined
-    return { schema: 'stock-v2', category, itemName, location, transactionDate: dec(rec.d), note: dec(rec.n), createdBy: dec(rec.by), createdDate: dec(rec.cd), vendor: dec(rec.v), referenceNumber: dec(rec.r), reason: dec(rec.rs), issuedTo: dec(rec.to), reasonType: (dec(rec.rt) || undefined) as StockOutType | undefined, fromLocation: dec(rec.fl), toLocation: dec(rec.tl), approvalStatus: (dec(rec.as) || undefined) as ApprovalStatus | undefined, approvedBy: dec(rec.ab), approvedDate: dec(rec.ad), scrapVendor: dec(rec.sv), unitCost: Number.isFinite(u || NaN) ? u : undefined, totalCost: Number.isFinite(t || NaN) ? t : undefined, quantity: Number.isFinite(q || NaN) ? q : undefined }
+    return { schema: 'stock-v2', category, itemName, serialNumber: dec(rec.sn), location, transactionDate: dec(rec.d), note: dec(rec.n), createdBy: dec(rec.by), createdDate: dec(rec.cd), vendor: dec(rec.v), referenceNumber: dec(rec.r), reason: dec(rec.rs), issuedTo: dec(rec.to), reasonType: (dec(rec.rt) || undefined) as StockOutType | undefined, fromLocation: dec(rec.fl), toLocation: dec(rec.tl), approvalStatus: (dec(rec.as) || undefined) as ApprovalStatus | undefined, approvedBy: dec(rec.ab), approvedDate: dec(rec.ad), scrapVendor: dec(rec.sv), unitCost: Number.isFinite(u || NaN) ? u : undefined, totalCost: Number.isFinite(t || NaN) ? t : undefined, quantity: Number.isFinite(q || NaN) ? q : undefined }
   }
   if (!reason.startsWith(LEGACY)) return null
   try { const parsed = JSON.parse(reason.slice(LEGACY.length)); return parsed?.schema === 'stock-v2' ? (parsed as TxMeta) : null } catch { return null }
@@ -162,8 +165,8 @@ export function StockHistory() {
   const [lowStockThreshold, setLowStockThreshold] = useState('5')
   const [reportMonth, setReportMonth] = useState(thisMonth)
   const [savedLocations, setSavedLocations] = useState<string[]>([])
-  const [inF, setInF] = useState({ category: '', itemName: '', vendor: '', quantity: '1', unitCost: '0', location: 'Main Office', referenceNumber: '', date: today, note: '' })
-  const [outF, setOutF] = useState({ category: '', itemName: '', quantity: '1', location: 'Main Office', reason: '', issuedTo: '', reasonType: 'issue' as StockOutType, toLocation: '', scrapVendor: '', date: today, note: '' })
+  const [inF, setInF] = useState({ category: '', itemName: '', serialNumber: '', vendor: '', quantity: '1', unitCost: '0', location: 'Main Office', referenceNumber: '', date: today, note: '' })
+  const [outF, setOutF] = useState({ category: '', itemName: '', serialNumber: '', quantity: '1', location: 'Main Office', reason: '', issuedTo: '', reasonType: 'issue' as StockOutType, toLocation: '', scrapVendor: '', date: today, note: '' })
 
   useEffect(() => { void load() }, [])
   useEffect(() => {
@@ -185,7 +188,7 @@ export function StockHistory() {
 
   const load = async () => {
     try {
-      const rows = await blink.db.stockTransactions.list({ orderBy: { createdAt: 'desc' } }) as Array<{ id: string; type: string; quantity: number | string; createdAt?: string; reason?: string }>
+      const rows = await dataClient.db.stockTransactions.list({ orderBy: { createdAt: 'desc' } }) as Array<{ id: string; type: string; quantity: number | string; createdAt?: string; reason?: string }>
       setTxs(rows.filter(r => r.type === 'in' || r.type === 'out').map(r => ({ id: r.id, type: r.type as 'in' | 'out', quantity: Number(r.quantity) || 0, createdAt: r.createdAt || new Date().toISOString(), reason: r.reason || '', meta: parseMeta(r.reason || '') })))
     } catch {
       toast.error('Failed to fetch stock history')
@@ -198,8 +201,8 @@ export function StockHistory() {
     const map = new Map<string, SummaryRow>()
     txs.forEach(tx => {
       if (!tx.meta || !isApproved(tx)) return
-      const k = keyOf(tx.meta.category, tx.meta.itemName, tx.meta.location)
-      const row = map.get(k) || { key: k, category: tx.meta.category, itemName: tx.meta.itemName, location: tx.meta.location, qty: 0, unitCost: 0, totalValue: 0 }
+      const k = keyOf(tx.meta.category, tx.meta.itemName, tx.meta.location, tx.meta.serialNumber)
+      const row = map.get(k) || { key: k, category: tx.meta.category, itemName: tx.meta.itemName, serialNumber: tx.meta.serialNumber, location: tx.meta.location, qty: 0, unitCost: 0, totalValue: 0 }
       row.qty += tx.type === 'in' ? tx.quantity : -tx.quantity
       if (tx.type === 'in') row.unitCost = Number(tx.meta.unitCost) || row.unitCost
       row.totalValue = row.qty * row.unitCost
@@ -260,7 +263,7 @@ export function StockHistory() {
 
   const detailTxs = useMemo(() => {
     if (!detailRow) return []
-    return approvedFilteredTxs.filter(tx => tx.meta && keyOf(tx.meta.category, tx.meta.itemName, tx.meta.location) === detailRow.key).slice(0, 30)
+    return approvedFilteredTxs.filter(tx => tx.meta && keyOf(tx.meta.category, tx.meta.itemName, tx.meta.location, tx.meta.serialNumber) === detailRow.key).slice(0, 30)
   }, [detailRow, approvedFilteredTxs])
 
   const outSummary = useMemo(() => {
@@ -271,8 +274,8 @@ export function StockHistory() {
       const fromLocation = m.fromLocation || m.location
       const toLocation = m.toLocation || '-'
       const reasonType = m.reasonType || 'out'
-      const key = `${m.category}|${m.itemName}|${fromLocation}|${toLocation}|${reasonType}`
-      const row = map.get(key) || { key, category: m.category, itemName: m.itemName, fromLocation, toLocation, reasonType, qty: 0 }
+      const key = `${m.category}|${m.itemName}|${m.serialNumber || ''}|${fromLocation}|${toLocation}|${reasonType}`
+      const row = map.get(key) || { key, category: m.category, itemName: m.itemName, serialNumber: m.serialNumber, fromLocation, toLocation, reasonType, qty: 0 }
       row.qty += tx.quantity
       map.set(key, row)
     })
@@ -287,7 +290,7 @@ export function StockHistory() {
       const fromLocation = m.fromLocation || m.location
       const toLocation = m.toLocation || '-'
       const reasonType = m.reasonType || 'out'
-      const key = `${m.category}|${m.itemName}|${fromLocation}|${toLocation}|${reasonType}`
+      const key = `${m.category}|${m.itemName}|${m.serialNumber || ''}|${fromLocation}|${toLocation}|${reasonType}`
       return key === outDetailRow.key
     }).slice(0, 30)
   }, [outDetailRow, approvedFilteredTxs])
@@ -323,13 +326,13 @@ export function StockHistory() {
   const ensureAnchor = async () => {
     if (anchor) return anchor
     try {
-      const one = await blink.db.assets.list({ where: { serialNumber: ANCHOR_SERIAL }, limit: 1 }) as AssetRow[]
+      const one = await dataClient.db.assets.list({ where: { serialNumber: ANCHOR_SERIAL }, limit: 1 }) as AssetRow[]
       if (one[0]?.id) { setAnchor(one[0].id); return one[0].id }
     } catch { /* ignore */ }
-    const all = await blink.db.assets.list() as AssetRow[]
+    const all = await dataClient.db.assets.list() as AssetRow[]
     const found = all.find(a => a.serialNumber === ANCHOR_SERIAL)
     if (found?.id) { setAnchor(found.id); return found.id }
-    const created = await blink.db.assets.create({ name: 'Stock Ledger Anchor', category: opts[0].value || 'laptop', serialNumber: ANCHOR_SERIAL, location: 'System Ledger', status: 'available' }) as { id: string }
+    const created = await dataClient.db.assets.create({ name: 'Stock Ledger Anchor', category: opts[0].value || 'laptop', serialNumber: ANCHOR_SERIAL, location: 'System Ledger', status: 'available' }) as { id: string }
     setAnchor(created.id)
     return created.id
   }
@@ -340,13 +343,13 @@ export function StockHistory() {
     if (!inF.itemName.trim() || !inF.vendor.trim() || !inF.location.trim() || !inF.date || qty <= 0) return toast.error('Please fill all required fields')
     rememberLocation(inF.location)
     const now = new Date().toISOString()
-    const meta: TxMeta = { schema: 'stock-v2', category: inF.category, itemName: inF.itemName.trim(), vendor: inF.vendor.trim(), quantity: qty, unitCost: unit, totalCost: inTotal, location: inF.location.trim(), referenceNumber: inF.referenceNumber.trim(), transactionDate: inF.date, note: inF.note.trim(), createdBy: user?.email || user?.id || 'unknown', createdDate: now, approvalStatus: 'approved' }
+    const meta: TxMeta = { schema: 'stock-v2', category: inF.category, itemName: inF.itemName.trim(), serialNumber: inF.serialNumber.trim(), vendor: inF.vendor.trim(), quantity: qty, unitCost: unit, totalCost: inTotal, location: inF.location.trim(), referenceNumber: inF.referenceNumber.trim(), transactionDate: inF.date, note: inF.note.trim(), createdBy: user?.email || user?.id || 'unknown', createdDate: now, approvalStatus: 'approved' }
     try {
       const assetId = await ensureAnchor()
-      await blink.db.stockTransactions.create({ assetId, type: 'in', quantity: qty, reason: buildMeta(meta), createdAt: toIso(inF.date) })
+      await dataClient.db.stockTransactions.create({ assetId, type: 'in', quantity: qty, reason: buildMeta(meta), createdAt: toIso(inF.date) })
       toast.success('Stock IN saved')
       setInOpen(false)
-      setInF({ category: opts[0].value, itemName: '', vendor: vendors[0] || '', quantity: '1', unitCost: '0', location: 'Main Office', referenceNumber: '', date: today, note: '' })
+      setInF({ category: opts[0].value, itemName: '', serialNumber: '', vendor: vendors[0] || '', quantity: '1', unitCost: '0', location: 'Main Office', referenceNumber: '', date: today, note: '' })
       await load()
     } catch (err) {
       toast.error(`Error saving Stock IN: ${errMsg(err)}`)
@@ -356,7 +359,7 @@ export function StockHistory() {
   const saveOut = async (e: React.FormEvent) => {
     e.preventDefault()
     const qty = nQ(outF.quantity)
-    const available = qtyByKey.get(keyOf(outF.category, outF.itemName, outF.location)) || 0
+    const available = qtyByKey.get(keyOf(outF.category, outF.itemName, outF.location, outF.serialNumber)) || 0
     if (!outF.itemName.trim() || !outF.location.trim() || !outF.reason.trim() || !outF.date || qty <= 0) return toast.error('Please fill all required fields')
     if (outF.reasonType === 'scrap' && !outF.scrapVendor.trim()) return toast.error('Scrap Vendor is required for scrap')
     if (outF.reasonType === 'transfer' && !outF.toLocation.trim()) return toast.error('To Location is required for transfer')
@@ -366,13 +369,13 @@ export function StockHistory() {
 
     const now = new Date().toISOString()
     const needsApproval = outF.reasonType === 'scrap' || outF.reasonType === 'transfer'
-    const meta: TxMeta = { schema: 'stock-v2', category: outF.category, itemName: outF.itemName.trim(), location: outF.location.trim(), reason: outF.reason.trim(), issuedTo: outF.issuedTo.trim(), reasonType: outF.reasonType, fromLocation: outF.location.trim(), toLocation: outF.reasonType === 'transfer' ? outF.toLocation.trim() : '', scrapVendor: outF.reasonType === 'scrap' ? outF.scrapVendor.trim() : '', quantity: qty, transactionDate: outF.date, note: outF.note.trim(), createdBy: user?.email || user?.id || 'unknown', createdDate: now, approvalStatus: needsApproval ? 'pending' : 'approved' }
+    const meta: TxMeta = { schema: 'stock-v2', category: outF.category, itemName: outF.itemName.trim(), serialNumber: outF.serialNumber.trim(), location: outF.location.trim(), reason: outF.reason.trim(), issuedTo: outF.issuedTo.trim(), reasonType: outF.reasonType, fromLocation: outF.location.trim(), toLocation: outF.reasonType === 'transfer' ? outF.toLocation.trim() : '', scrapVendor: outF.reasonType === 'scrap' ? outF.scrapVendor.trim() : '', quantity: qty, transactionDate: outF.date, note: outF.note.trim(), createdBy: user?.email || user?.id || 'unknown', createdDate: now, approvalStatus: needsApproval ? 'pending' : 'approved' }
     try {
       const assetId = await ensureAnchor()
-      await blink.db.stockTransactions.create({ assetId, type: 'out', quantity: qty, reason: buildMeta(meta), createdAt: toIso(outF.date) })
+      await dataClient.db.stockTransactions.create({ assetId, type: 'out', quantity: qty, reason: buildMeta(meta), createdAt: toIso(outF.date) })
       toast.success(needsApproval ? 'Stock OUT submitted for approval' : 'Stock OUT saved')
       setOutOpen(false)
-      setOutF({ category: opts[0].value, itemName: '', quantity: '1', location: 'Main Office', reason: '', issuedTo: '', reasonType: 'issue', toLocation: '', scrapVendor: '', date: today, note: '' })
+      setOutF({ category: opts[0].value, itemName: '', serialNumber: '', quantity: '1', location: 'Main Office', reason: '', issuedTo: '', reasonType: 'issue', toLocation: '', scrapVendor: '', date: today, note: '' })
       await load()
     } catch (err) {
       toast.error(`Error saving Stock OUT: ${errMsg(err)}`)
@@ -384,11 +387,11 @@ export function StockHistory() {
     const now = new Date().toISOString()
     const approvedMeta: TxMeta = { ...tx.meta, approvalStatus: 'approved', approvedBy: user?.email || user?.id || 'unknown', approvedDate: now }
     try {
-      await blink.db.stockTransactions.update(tx.id, { reason: buildMeta(approvedMeta) })
+      await dataClient.db.stockTransactions.update(tx.id, { reason: buildMeta(approvedMeta) })
       if (tx.meta.reasonType === 'transfer' && tx.meta.toLocation) {
         const assetId = await ensureAnchor()
         const inMeta: TxMeta = { ...approvedMeta, location: tx.meta.toLocation, reason: `Transfer received from ${tx.meta.fromLocation || tx.meta.location}`, referenceNumber: `TRF-${Date.now()}`, approvalStatus: 'approved' }
-        await blink.db.stockTransactions.create({ assetId, type: 'in', quantity: tx.quantity, reason: buildMeta(inMeta), createdAt: toIso(tx.meta.transactionDate || today) })
+        await dataClient.db.stockTransactions.create({ assetId, type: 'in', quantity: tx.quantity, reason: buildMeta(inMeta), createdAt: toIso(tx.meta.transactionDate || today) })
       }
       toast.success('Request approved')
       await load()
@@ -402,7 +405,7 @@ export function StockHistory() {
     const now = new Date().toISOString()
     const rejectedMeta: TxMeta = { ...tx.meta, approvalStatus: 'rejected', approvedBy: user?.email || user?.id || 'unknown', approvedDate: now }
     try {
-      await blink.db.stockTransactions.update(tx.id, { reason: buildMeta(rejectedMeta) })
+      await dataClient.db.stockTransactions.update(tx.id, { reason: buildMeta(rejectedMeta) })
       toast.success('Request rejected')
       await load()
     } catch (err) {
@@ -410,9 +413,9 @@ export function StockHistory() {
     }
   }
 
-  const outChoices = summary.map(s => ({ value: s.key, label: `${s.itemName} (${s.location}) - ${s.qty}`, ...s }))
-  const selectedOutValue = outF.itemName.trim() ? keyOf(outF.category, outF.itemName, outF.location) : ''
-  const exportRows = filteredTxs.map(tx => ({ type: tx.type.toUpperCase(), date: dateOnly(tx.meta?.transactionDate || tx.createdAt), category: tx.meta?.category || '', itemName: tx.meta?.itemName || '', quantity: tx.quantity, reasonType: tx.meta?.reasonType || '', fromLocation: tx.meta?.fromLocation || tx.meta?.location || '', toLocation: tx.meta?.toLocation || '', scrapVendor: tx.meta?.scrapVendor || '', reason: tx.meta?.reason || '', approvalStatus: tx.meta?.approvalStatus || 'approved', createdBy: tx.meta?.createdBy || '' }))
+  const outChoices = summary.map(s => ({ value: s.key, label: `${s.itemName}${s.serialNumber ? ` [${s.serialNumber}]` : ''} (${s.location}) - ${s.qty}`, ...s }))
+  const selectedOutValue = outF.itemName.trim() ? keyOf(outF.category, outF.itemName, outF.location, outF.serialNumber) : ''
+  const exportRows = filteredTxs.map(tx => ({ type: tx.type.toUpperCase(), date: dateOnly(tx.meta?.transactionDate || tx.createdAt), category: tx.meta?.category || '', itemName: tx.meta?.itemName || '', serialNumber: tx.meta?.serialNumber || '', quantity: tx.quantity, reasonType: tx.meta?.reasonType || '', fromLocation: tx.meta?.fromLocation || tx.meta?.location || '', toLocation: tx.meta?.toLocation || '', scrapVendor: tx.meta?.scrapVendor || '', reason: tx.meta?.reason || '', approvalStatus: tx.meta?.approvalStatus || 'approved', createdBy: tx.meta?.createdBy || '' }))
 
   const exportCsv = () => {
     if (exportRows.length === 0) return toast.error('No rows to export')
@@ -466,6 +469,16 @@ export function StockHistory() {
                     <Input list="stock-location-options" placeholder="Location" value={inF.location} onChange={e => setInF({ ...inF, location: e.target.value })} />
                   </div>
                 </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1">
+                    <label className="text-xs text-muted-foreground">Serial Number</label>
+                    <Input placeholder="Serial Number (manual or from vendor)" value={inF.serialNumber} onChange={e => setInF({ ...inF, serialNumber: e.target.value })} />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-xs text-muted-foreground">Reference Number</label>
+                    <Input placeholder="Reference Number" value={inF.referenceNumber} onChange={e => setInF({ ...inF, referenceNumber: e.target.value })} />
+                  </div>
+                </div>
                 <div className="grid grid-cols-3 gap-3">
                   <div className="space-y-1">
                     <label className="text-xs text-muted-foreground">Quantity</label>
@@ -481,10 +494,7 @@ export function StockHistory() {
                   </div>
                 </div>
                 <div className="grid grid-cols-2 gap-3">
-                  <div className="space-y-1">
-                    <label className="text-xs text-muted-foreground">Reference Number</label>
-                    <Input placeholder="Reference Number" value={inF.referenceNumber} onChange={e => setInF({ ...inF, referenceNumber: e.target.value })} />
-                  </div>
+                  <div />
                   <div className="space-y-1">
                     <label className="text-xs text-muted-foreground">Date</label>
                     <Input type="date" value={inF.date} onChange={e => setInF({ ...inF, date: e.target.value })} />
@@ -505,12 +515,12 @@ export function StockHistory() {
               <form onSubmit={saveOut} className="space-y-3 py-2">
                 <div className="space-y-1">
                   <label className="text-xs text-muted-foreground">Inventory Item</label>
-                  <Select value={selectedOutValue} onValueChange={v => { const s = outChoices.find(x => x.value === v); if (s) setOutF({ ...outF, category: s.category, itemName: s.itemName, location: s.location }) }}>
+                  <Select value={selectedOutValue} onValueChange={v => { const s = outChoices.find(x => x.value === v); if (s) setOutF({ ...outF, category: s.category, itemName: s.itemName, serialNumber: s.serialNumber || '', location: s.location }) }}>
                     <SelectTrigger><SelectValue placeholder="Choose Inventory Item" /></SelectTrigger>
                     <SelectContent>{outChoices.length ? outChoices.map(o => <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>) : <div className="p-2 text-sm text-muted-foreground">No available stock</div>}</SelectContent>
                   </Select>
                 </div>
-                <div className="grid grid-cols-3 gap-3">
+                <div className="grid grid-cols-4 gap-3">
                   <div className="space-y-1">
                     <label className="text-xs text-muted-foreground">Item Category</label>
                     <Input readOnly value={outF.category} />
@@ -518,6 +528,10 @@ export function StockHistory() {
                   <div className="space-y-1">
                     <label className="text-xs text-muted-foreground">Item Name</label>
                     <Input readOnly value={outF.itemName} />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-xs text-muted-foreground">Serial Number</label>
+                    <Input value={outF.serialNumber} onChange={e => setOutF({ ...outF, serialNumber: e.target.value })} placeholder="Serial Number" />
                   </div>
                   <div className="space-y-1">
                     <label className="text-xs text-muted-foreground">From Location</label>
@@ -569,7 +583,7 @@ export function StockHistory() {
                 </div>
                 <div className="text-xs text-muted-foreground">
                   {outF.itemName.trim()
-                    ? `Available in ${outF.location}: ${qtyByKey.get(keyOf(outF.category, outF.itemName, outF.location)) || 0}`
+                    ? `Available in ${outF.location}${outF.serialNumber ? ` [${outF.serialNumber}]` : ''}: ${qtyByKey.get(keyOf(outF.category, outF.itemName, outF.location, outF.serialNumber)) || 0}`
                     : 'Select Inventory Item first. Then available quantity will be shown.'}
                 </div>
                 <DialogFooter><Button className="w-full" type="submit" disabled={!outF.itemName.trim()}>Save Stock OUT</Button></DialogFooter>
@@ -583,21 +597,21 @@ export function StockHistory() {
         <div className="space-y-1">
           <label className="text-xs text-muted-foreground">Location</label>
           <Select value={locationFilter} onValueChange={setLocationFilter}>
-            <SelectTrigger className="w-[220px]"><SelectValue placeholder="Filter by location" /></SelectTrigger>
+            <SelectTrigger className="w-full sm:w-[220px]"><SelectValue placeholder="Filter by location" /></SelectTrigger>
             <SelectContent><SelectItem value="all">All Locations</SelectItem>{allLocations.map(loc => <SelectItem key={loc} value={loc}>{loc}</SelectItem>)}</SelectContent>
           </Select>
         </div>
         <div className="space-y-1">
           <label className="text-xs text-muted-foreground">From Date</label>
-          <Input type="date" className="w-[150px]" value={fromDate} onChange={e => setFromDate(e.target.value)} />
+          <Input data-testid="stock-filter-from-date" type="date" className="w-full sm:w-[150px]" value={fromDate} onChange={e => setFromDate(e.target.value)} />
         </div>
         <div className="space-y-1">
           <label className="text-xs text-muted-foreground">To Date</label>
-          <Input type="date" className="w-[150px]" value={toDate} onChange={e => setToDate(e.target.value)} />
+          <Input data-testid="stock-filter-to-date" type="date" className="w-full sm:w-[150px]" value={toDate} onChange={e => setToDate(e.target.value)} />
         </div>
         <div className="space-y-1">
           <label className="text-xs text-muted-foreground">Low Stock Alert Qty</label>
-          <Input className="w-[220px]" placeholder="Low stock threshold (0 = off)" value={lowStockThreshold} onChange={e => setLowStockThreshold(qInt(e.target.value, 0))} />
+          <Input className="w-full sm:w-[220px]" placeholder="Low stock threshold (0 = off)" value={lowStockThreshold} onChange={e => setLowStockThreshold(qInt(e.target.value, 0))} />
         </div>
         <Button variant="outline" size="sm" onClick={() => { setFromDate(''); setToDate('') }}>All Dates</Button>
         <Button variant="outline" size="sm" onClick={() => { setFromDate(today); setToDate(today) }}>Today</Button>
@@ -624,23 +638,23 @@ export function StockHistory() {
 
       <div className="bg-card rounded-2xl border border-border/50 overflow-hidden">
         <div className="px-4 py-3 border-b bg-muted/20 font-semibold">Inventory Summary</div>
-        <Table><TableHeader><TableRow><TableHead>Category</TableHead><TableHead>Item</TableHead><TableHead>Location</TableHead><TableHead>On Hand</TableHead><TableHead>Unit Cost</TableHead><TableHead>Total Value</TableHead><TableHead>Details</TableHead></TableRow></TableHeader>
-          <TableBody>{loading ? <TableRow><TableCell colSpan={7}>Loading...</TableCell></TableRow> : filteredSummary.length === 0 ? <TableRow><TableCell colSpan={7} className="text-center py-8"><Package className="w-8 h-8 mx-auto opacity-20" />No inventory in selected filter.</TableCell></TableRow> : filteredSummary.map(r => <TableRow key={r.key}><TableCell className="capitalize">{r.category}</TableCell><TableCell>{r.itemName}</TableCell><TableCell>{r.location}</TableCell><TableCell className="font-semibold">{r.qty}</TableCell><TableCell>{money(r.unitCost)}</TableCell><TableCell className="font-semibold">{money(r.totalValue)}</TableCell><TableCell><Button variant="outline" size="sm" onClick={() => { setDetailRow(r); setDetailOpen(true) }}>Full Details</Button></TableCell></TableRow>)}</TableBody>
+        <Table><TableHeader><TableRow><TableHead>Category</TableHead><TableHead>Item</TableHead><TableHead>Serial No.</TableHead><TableHead>Location</TableHead><TableHead>On Hand</TableHead><TableHead>Unit Cost</TableHead><TableHead>Total Value</TableHead><TableHead>Details</TableHead></TableRow></TableHeader>
+          <TableBody>{loading ? <TableRow><TableCell colSpan={8}>Loading...</TableCell></TableRow> : filteredSummary.length === 0 ? <TableRow><TableCell colSpan={8} className="text-center py-8"><Package className="w-8 h-8 mx-auto opacity-20" />No inventory in selected filter.</TableCell></TableRow> : filteredSummary.map(r => <TableRow key={r.key}><TableCell className="capitalize">{r.category}</TableCell><TableCell>{r.itemName}</TableCell><TableCell>{r.serialNumber || '-'}</TableCell><TableCell>{r.location}</TableCell><TableCell className="font-semibold">{r.qty}</TableCell><TableCell>{money(r.unitCost)}</TableCell><TableCell className="font-semibold">{money(r.totalValue)}</TableCell><TableCell><Button variant="outline" size="sm" onClick={() => { setDetailRow(r); setDetailOpen(true) }}>Full Details</Button></TableCell></TableRow>)}</TableBody>
         </Table>
       </div>
 
       <div className="bg-card rounded-2xl border border-border/50 overflow-hidden">
         <div className="px-4 py-3 border-b bg-muted/20 font-semibold">Stock OUT Summary</div>
-        <Table><TableHeader><TableRow><TableHead>Item</TableHead><TableHead>Reason Type</TableHead><TableHead>From</TableHead><TableHead>To</TableHead><TableHead>Qty</TableHead><TableHead>Details</TableHead></TableRow></TableHeader>
-          <TableBody>{loading ? <TableRow><TableCell colSpan={6}>Loading...</TableCell></TableRow> : outSummary.length === 0 ? <TableRow><TableCell colSpan={6} className="text-center py-8 text-muted-foreground">No OUT summary in selected filters.</TableCell></TableRow> : outSummary.map(r => <TableRow key={r.key}><TableCell>{r.itemName}</TableCell><TableCell className="capitalize">{r.reasonType}</TableCell><TableCell>{r.fromLocation}</TableCell><TableCell>{r.toLocation}</TableCell><TableCell>{r.qty}</TableCell><TableCell><Button variant="outline" size="sm" onClick={() => { setOutDetailRow(r); setOutDetailOpen(true) }}>Full Details</Button></TableCell></TableRow>)}</TableBody>
+        <Table><TableHeader><TableRow><TableHead>Item</TableHead><TableHead>Serial No.</TableHead><TableHead>Reason Type</TableHead><TableHead>From</TableHead><TableHead>To</TableHead><TableHead>Qty</TableHead><TableHead>Details</TableHead></TableRow></TableHeader>
+          <TableBody>{loading ? <TableRow><TableCell colSpan={7}>Loading...</TableCell></TableRow> : outSummary.length === 0 ? <TableRow><TableCell colSpan={7} className="text-center py-8 text-muted-foreground">No OUT summary in selected filters.</TableCell></TableRow> : outSummary.map(r => <TableRow key={r.key}><TableCell>{r.itemName}</TableCell><TableCell>{r.serialNumber || '-'}</TableCell><TableCell className="capitalize">{r.reasonType}</TableCell><TableCell>{r.fromLocation}</TableCell><TableCell>{r.toLocation}</TableCell><TableCell>{r.qty}</TableCell><TableCell><Button variant="outline" size="sm" onClick={() => { setOutDetailRow(r); setOutDetailOpen(true) }}>Full Details</Button></TableCell></TableRow>)}</TableBody>
         </Table>
       </div>
 
       {pendingApprovals.length > 0 && (
-        <div className="bg-card rounded-2xl border border-border/50 overflow-hidden">
+        <div className="bg-card rounded-2xl border border-border/50 overflow-hidden" data-testid="stock-pending-approvals">
           <div className="px-4 py-3 border-b bg-muted/20 font-semibold">Pending Approvals (Scrap / Transfer)</div>
-          <Table><TableHeader><TableRow><TableHead>Item</TableHead><TableHead>Type</TableHead><TableHead>Qty</TableHead><TableHead>From</TableHead><TableHead>To</TableHead><TableHead>Reason</TableHead><TableHead>Action</TableHead></TableRow></TableHeader>
-            <TableBody>{pendingApprovals.map(tx => <TableRow key={tx.id}><TableCell>{tx.meta?.itemName}</TableCell><TableCell className="capitalize">{tx.meta?.reasonType}</TableCell><TableCell>{tx.quantity}</TableCell><TableCell>{tx.meta?.fromLocation || tx.meta?.location || '-'}</TableCell><TableCell>{tx.meta?.toLocation || '-'}</TableCell><TableCell>{tx.meta?.reason || '-'}</TableCell><TableCell className="flex gap-2"><Button size="sm" onClick={() => void approveRequest(tx)}>Approve</Button><Button size="sm" variant="outline" onClick={() => void rejectRequest(tx)}>Reject</Button></TableCell></TableRow>)}</TableBody>
+          <Table><TableHeader><TableRow><TableHead>Item</TableHead><TableHead>Serial No.</TableHead><TableHead>Type</TableHead><TableHead>Qty</TableHead><TableHead>From</TableHead><TableHead>To</TableHead><TableHead>Reason</TableHead><TableHead>Action</TableHead></TableRow></TableHeader>
+            <TableBody>{pendingApprovals.map(tx => <TableRow key={tx.id}><TableCell>{tx.meta?.itemName}</TableCell><TableCell>{tx.meta?.serialNumber || '-'}</TableCell><TableCell className="capitalize">{tx.meta?.reasonType}</TableCell><TableCell>{tx.quantity}</TableCell><TableCell>{tx.meta?.fromLocation || tx.meta?.location || '-'}</TableCell><TableCell>{tx.meta?.toLocation || '-'}</TableCell><TableCell>{tx.meta?.reason || '-'}</TableCell><TableCell className="flex gap-2"><Button data-testid={`stock-approve-${tx.id}`} size="sm" onClick={() => void approveRequest(tx)}>Approve</Button><Button size="sm" variant="outline" onClick={() => void rejectRequest(tx)}>Reject</Button></TableCell></TableRow>)}</TableBody>
           </Table>
         </div>
       )}
@@ -654,7 +668,7 @@ export function StockHistory() {
               Example: Opening 10, IN 5, OUT 3, then Closing 12.
             </div>
           </div>
-          <Input type="month" className="w-[180px]" value={reportMonth} onChange={e => setReportMonth(e.target.value)} />
+          <Input type="month" className="w-full sm:w-[180px]" value={reportMonth} onChange={e => setReportMonth(e.target.value)} />
         </div>
         <Table><TableHeader><TableRow><TableHead>Location</TableHead><TableHead>Opening Qty</TableHead><TableHead>Closing Qty</TableHead></TableRow></TableHeader>
           <TableBody>{monthlyReport.length === 0 ? <TableRow><TableCell colSpan={3} className="text-center py-6 text-muted-foreground">No monthly data in current filter.</TableCell></TableRow> : monthlyReport.map(r => <TableRow key={r.location}><TableCell>{r.location}</TableCell><TableCell>{r.openingQty}</TableCell><TableCell>{r.closingQty}</TableCell></TableRow>)}</TableBody>
@@ -663,8 +677,8 @@ export function StockHistory() {
 
       <div className="bg-card rounded-2xl border border-border/50 overflow-hidden">
         <div className="px-4 py-3 border-b bg-muted/20 font-semibold">Stock Transactions</div>
-        <Table><TableHeader><TableRow><TableHead>Type</TableHead><TableHead>Item</TableHead><TableHead>Qty</TableHead><TableHead>Reason Type</TableHead><TableHead>From</TableHead><TableHead>To</TableHead><TableHead>Status</TableHead><TableHead>Date</TableHead></TableRow></TableHeader>
-          <TableBody>{loading ? <TableRow><TableCell colSpan={8}>Loading...</TableCell></TableRow> : filteredTxs.length === 0 ? <TableRow><TableCell colSpan={8} className="text-center py-8 text-muted-foreground">No transactions in selected filters.</TableCell></TableRow> : filteredTxs.slice(0, 80).map(tx => { const m = tx.meta; const status = m?.approvalStatus || 'approved'; return <TableRow key={tx.id}><TableCell>{tx.type === 'in' ? <Badge className="bg-emerald-50 text-emerald-600 border-emerald-100"><ArrowUpCircle className="w-3 h-3 mr-1 inline" />IN</Badge> : <Badge className="bg-rose-50 text-rose-600 border-rose-100"><ArrowDownCircle className="w-3 h-3 mr-1 inline" />OUT</Badge>}</TableCell><TableCell>{m?.itemName || 'Legacy / Asset Transaction'}</TableCell><TableCell>{tx.quantity}</TableCell><TableCell className="capitalize">{m?.reasonType || (tx.type === 'in' ? 'in' : 'out')}</TableCell><TableCell>{m?.fromLocation || m?.location || '-'}</TableCell><TableCell>{m?.toLocation || '-'}</TableCell><TableCell className="capitalize">{status}</TableCell><TableCell className="text-sm text-muted-foreground"><Calendar className="w-3 h-3 mr-1 inline" />{dateOnly(m?.transactionDate || tx.createdAt)}</TableCell></TableRow> })}</TableBody>
+        <Table><TableHeader><TableRow><TableHead>Type</TableHead><TableHead>Item</TableHead><TableHead>Serial No.</TableHead><TableHead>Qty</TableHead><TableHead>Reason Type</TableHead><TableHead>From</TableHead><TableHead>To</TableHead><TableHead>Status</TableHead><TableHead>Date</TableHead></TableRow></TableHeader>
+          <TableBody>{loading ? <TableRow><TableCell colSpan={9}>Loading...</TableCell></TableRow> : filteredTxs.length === 0 ? <TableRow><TableCell colSpan={9} className="text-center py-8 text-muted-foreground">No transactions in selected filters.</TableCell></TableRow> : filteredTxs.slice(0, 80).map(tx => { const m = tx.meta; const status = m?.approvalStatus || 'approved'; return <TableRow key={tx.id}><TableCell>{tx.type === 'in' ? <Badge className="bg-emerald-50 text-emerald-600 border-emerald-100"><ArrowUpCircle className="w-3 h-3 mr-1 inline" />IN</Badge> : <Badge className="bg-rose-50 text-rose-600 border-rose-100"><ArrowDownCircle className="w-3 h-3 mr-1 inline" />OUT</Badge>}</TableCell><TableCell>{m?.itemName || 'Legacy / Asset Transaction'}</TableCell><TableCell>{m?.serialNumber || '-'}</TableCell><TableCell>{tx.quantity}</TableCell><TableCell className="capitalize">{m?.reasonType || (tx.type === 'in' ? 'in' : 'out')}</TableCell><TableCell>{m?.fromLocation || m?.location || '-'}</TableCell><TableCell>{m?.toLocation || '-'}</TableCell><TableCell className="capitalize">{status}</TableCell><TableCell className="text-sm text-muted-foreground"><Calendar className="w-3 h-3 mr-1 inline" />{dateOnly(m?.transactionDate || tx.createdAt)}</TableCell></TableRow> })}</TableBody>
         </Table>
       </div>
 
@@ -674,15 +688,16 @@ export function StockHistory() {
 
       <Dialog open={detailOpen} onOpenChange={setDetailOpen}>
         <DialogContent className="sm:max-w-[760px]"><DialogHeader><DialogTitle>Inventory Full Details</DialogTitle></DialogHeader>
-          {detailRow && <Table><TableHeader><TableRow><TableHead>Type</TableHead><TableHead>Qty</TableHead><TableHead>Reason</TableHead><TableHead>Date</TableHead></TableRow></TableHeader><TableBody>{detailTxs.length === 0 ? <TableRow><TableCell colSpan={4} className="text-center py-6 text-muted-foreground">No movements found.</TableCell></TableRow> : detailTxs.map(tx => <TableRow key={tx.id}><TableCell className="uppercase">{tx.type}</TableCell><TableCell>{tx.quantity}</TableCell><TableCell>{tx.meta?.reason || tx.meta?.note || '-'}</TableCell><TableCell>{dateOnly(tx.meta?.transactionDate || tx.createdAt)}</TableCell></TableRow>)}</TableBody></Table>}
+          {detailRow && <Table><TableHeader><TableRow><TableHead>Type</TableHead><TableHead>Serial No.</TableHead><TableHead>Qty</TableHead><TableHead>Reason</TableHead><TableHead>Date</TableHead></TableRow></TableHeader><TableBody>{detailTxs.length === 0 ? <TableRow><TableCell colSpan={5} className="text-center py-6 text-muted-foreground">No movements found.</TableCell></TableRow> : detailTxs.map(tx => <TableRow key={tx.id}><TableCell className="uppercase">{tx.type}</TableCell><TableCell>{tx.meta?.serialNumber || '-'}</TableCell><TableCell>{tx.quantity}</TableCell><TableCell>{tx.meta?.reason || tx.meta?.note || '-'}</TableCell><TableCell>{dateOnly(tx.meta?.transactionDate || tx.createdAt)}</TableCell></TableRow>)}</TableBody></Table>}
         </DialogContent>
       </Dialog>
 
       <Dialog open={outDetailOpen} onOpenChange={setOutDetailOpen}>
         <DialogContent className="sm:max-w-[760px]"><DialogHeader><DialogTitle>Stock OUT Full Details</DialogTitle></DialogHeader>
-          {outDetailRow && <Table><TableHeader><TableRow><TableHead>Qty</TableHead><TableHead>Reason</TableHead><TableHead>From</TableHead><TableHead>To</TableHead><TableHead>Date</TableHead></TableRow></TableHeader><TableBody>{outDetailTxs.length === 0 ? <TableRow><TableCell colSpan={5} className="text-center py-6 text-muted-foreground">No movements found.</TableCell></TableRow> : outDetailTxs.map(tx => <TableRow key={tx.id}><TableCell>{tx.quantity}</TableCell><TableCell>{tx.meta?.reason || '-'}</TableCell><TableCell>{tx.meta?.fromLocation || tx.meta?.location || '-'}</TableCell><TableCell>{tx.meta?.toLocation || '-'}</TableCell><TableCell>{dateOnly(tx.meta?.transactionDate || tx.createdAt)}</TableCell></TableRow>)}</TableBody></Table>}
+          {outDetailRow && <Table><TableHeader><TableRow><TableHead>Serial No.</TableHead><TableHead>Qty</TableHead><TableHead>Reason</TableHead><TableHead>From</TableHead><TableHead>To</TableHead><TableHead>Date</TableHead></TableRow></TableHeader><TableBody>{outDetailTxs.length === 0 ? <TableRow><TableCell colSpan={6} className="text-center py-6 text-muted-foreground">No movements found.</TableCell></TableRow> : outDetailTxs.map(tx => <TableRow key={tx.id}><TableCell>{tx.meta?.serialNumber || '-'}</TableCell><TableCell>{tx.quantity}</TableCell><TableCell>{tx.meta?.reason || '-'}</TableCell><TableCell>{tx.meta?.fromLocation || tx.meta?.location || '-'}</TableCell><TableCell>{tx.meta?.toLocation || '-'}</TableCell><TableCell>{dateOnly(tx.meta?.transactionDate || tx.createdAt)}</TableCell></TableRow>)}</TableBody></Table>}
         </DialogContent>
       </Dialog>
     </div>
   )
 }
+

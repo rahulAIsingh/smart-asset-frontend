@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react'
 import { AlertCircle, Calculator, FileSpreadsheet, Landmark, Plus } from 'lucide-react'
 import { toast } from 'sonner'
-import { blink } from '../lib/blink'
+import { dataClient } from '../lib/dataClient'
 import { useAuth } from '../hooks/useAuth'
 import { useCategories } from '../hooks/useCategories'
 import { Badge } from '../components/ui/badge'
@@ -155,8 +155,8 @@ export function Finance() {
       const [pRes, oRes, assetsRes, txRes] = await Promise.all([
         listFinanceProfiles(),
         listFinanceAssetOverrides(),
-        blink.db.assets.list({ orderBy: { createdAt: 'desc' } }) as Promise<AssetLite[]>,
-        blink.db.stockTransactions.list({ orderBy: { createdAt: 'desc' } }) as Promise<Array<{ id: string; type: string; quantity: number | string; createdAt?: string; reason?: string }>>,
+        dataClient.db.assets.list({ orderBy: { createdAt: 'desc' } }) as Promise<AssetLite[]>,
+        dataClient.db.stockTransactions.list({ orderBy: { createdAt: 'desc' } }) as Promise<Array<{ id: string; type: string; quantity: number | string; createdAt?: string; reason?: string }>>,
       ])
       setProfiles(pRes.rows.sort((a, b) => a.category.localeCompare(b.category)))
       setOverrides(oRes.rows)
@@ -527,13 +527,13 @@ export function Finance() {
         </div>
       </div>
 
-      <div className="bg-card rounded-2xl border border-border/50 p-4 space-y-4">
+      <div className="bg-card rounded-2xl border border-border/50 p-4 space-y-4" data-testid="finance-override-section">
         <div className="font-semibold">Asset Override (Optional)</div>
         <form onSubmit={saveOverride} className="grid grid-cols-1 md:grid-cols-5 gap-3 items-end">
           <div className="space-y-1 md:col-span-2">
             <label className="text-xs text-muted-foreground">Asset</label>
             <Select value={overrideForm.assetId} onValueChange={v => setOverrideForm(s => ({ ...s, assetId: v }))}>
-              <SelectTrigger><SelectValue placeholder="Select asset" /></SelectTrigger>
+              <SelectTrigger data-testid="finance-override-asset-select"><SelectValue placeholder="Select asset" /></SelectTrigger>
               <SelectContent>
                 {assets.slice(0, 300).map(asset => (
                   <SelectItem key={asset.id} value={asset.id}>
@@ -636,3 +636,4 @@ export function Finance() {
     </div>
   )
 }
+

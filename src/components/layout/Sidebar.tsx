@@ -4,7 +4,6 @@ import {
   LayoutDashboard,
   Laptop,
   ArrowRightLeft,
-  History,
   Settings,
   Package,
   Menu,
@@ -14,32 +13,34 @@ import {
   LogOut,
   Database,
   Landmark,
-  ClipboardCheck
+  ClipboardCheck,
+  Clock
 } from 'lucide-react'
-import { blink } from '../../lib/blink'
+import { dataClient } from '../../lib/dataClient'
 import { cn } from '../../lib/utils'
 
 import { useUserRole } from '../../hooks/useUserRole'
-import { useAuth } from '../../hooks/useAuth'
+import type { AppPermission, UserRole } from '../../lib/rbac'
 
 const navItems = [
-  { icon: LayoutDashboard, label: 'Dashboard', path: '/', requiredRole: ['admin', 'support'] },
-  { icon: Laptop, label: 'My Assets', path: '/my-assets', requiredRole: ['user', 'pm', 'boss', 'admin', 'support'] },
-  { icon: Laptop, label: 'All Assets', path: '/assets', requiredRole: ['admin', 'support'] },
-  { icon: ArrowRightLeft, label: 'Issuance', path: '/issuance', requiredRole: ['admin'] },
-  { icon: Ticket, label: 'Tickets', path: '/tickets', requiredRole: ['admin', 'support'] },
-  { icon: ClipboardCheck, label: 'Approvals', path: '/approvals', requiredRole: ['pm', 'boss', 'admin', 'support'] },
-  { icon: UsersIcon, label: 'Users', path: '/users', requiredRole: ['admin'] },
-  { icon: Database, label: 'Data Management', path: '/data-management', requiredRole: ['admin'] },
-  { icon: Package, label: 'Stock Transactions', path: '/stock', requiredRole: ['admin'] },
-  { icon: Landmark, label: 'Finance', path: '/finance', requiredRole: ['admin'] },
-  { icon: Settings, label: 'Settings', path: '/settings', requiredRole: ['admin', 'pm', 'boss'] },
+  { icon: LayoutDashboard, label: 'Dashboard', path: '/', permission: 'dashboard:view' as AppPermission },
+  { icon: Laptop, label: 'My Assets', path: '/my-assets', permission: 'my_assets:view' as AppPermission },
+  { icon: Ticket, label: 'Tickets', path: '/tickets', permission: 'tickets:view' as AppPermission },
+  { icon: ClipboardCheck, label: 'Request Approvals', path: '/my-requests', permission: 'my_assets:view' as AppPermission, visibleRoles: ['user', 'pm', 'support'] as UserRole[] },
+  { icon: Clock, label: 'My Request History', path: '/my-request-history', permission: 'my_assets:view' as AppPermission, visibleRoles: ['user', 'pm', 'support'] as UserRole[] },
+  { icon: Laptop, label: 'All Assets', path: '/assets', permission: 'assets:view' as AppPermission },
+  { icon: ArrowRightLeft, label: 'Issuance', path: '/issuance', permission: 'issuance:manage' as AppPermission },
+  { icon: ClipboardCheck, label: 'Approvals', path: '/approvals', permission: 'approvals:view' as AppPermission },
+  { icon: UsersIcon, label: 'Users', path: '/users', permission: 'users:manage' as AppPermission },
+  { icon: Database, label: 'Data Management', path: '/data-management', permission: 'data:manage' as AppPermission },
+  { icon: Package, label: 'Stock Transactions', path: '/stock', permission: 'stock:manage' as AppPermission },
+  { icon: Landmark, label: 'Finance', path: '/finance', permission: 'finance:view' as AppPermission },
+  { icon: Settings, label: 'Settings', path: '/settings', permission: 'settings:view' as AppPermission },
 ]
 
 export function Sidebar({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }) {
   const location = useLocation()
-  const { role, loading } = useUserRole()
-  const { user } = useAuth()
+  const { can, role } = useUserRole()
 
   return (
     <>
@@ -72,14 +73,16 @@ export function Sidebar({ isOpen, onClose }: { isOpen: boolean; onClose: () => v
           {/* Nav */}
           <nav className="flex-1 overflow-y-auto py-6 px-4 space-y-1">
             {navItems
-              .filter(item => role && item.requiredRole && item.requiredRole.includes(role))
+              .filter(item => can(item.permission) && (!item.visibleRoles || (role ? item.visibleRoles.includes(role) : false)))
               .map((item) => {
                 const isActive = location.pathname === item.path
+                const navTestId = item.path === '/' ? 'sidebar-link-root' : `sidebar-link-${item.path.slice(1).replace(/\//g, '-')}`
                 return (
                   <Link
                     key={item.path}
                     to={item.path}
                     onClick={() => onClose()}
+                    data-testid={navTestId}
                     className={cn(
                       "flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors",
                       isActive
@@ -103,7 +106,7 @@ export function Sidebar({ isOpen, onClose }: { isOpen: boolean; onClose: () => v
             <button
               onClick={() => {
                 localStorage.removeItem('sam_user_role')
-                blink.auth.signOut()
+                dataClient.auth.signOut()
                 localStorage.removeItem('sam_dev_user')
                 window.location.reload()
               }}
@@ -118,3 +121,4 @@ export function Sidebar({ isOpen, onClose }: { isOpen: boolean; onClose: () => v
     </>
   )
 }
+

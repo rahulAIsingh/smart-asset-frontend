@@ -37,10 +37,18 @@ const RequireAuth = ({ children }: { children: React.ReactNode }) => {
 
 function App() {
   const { user } = useAuth()
-  const { role, loading: roleLoading } = useUserRole()
+  const { role, loading: roleLoading, can } = useUserRole()
+  const routerBasename = (import.meta.env.BASE_URL || '/').replace(/\/+$/, '')
+
+  const defaultLanding = () => {
+    if (can('dashboard:view')) return <Dashboard />
+    if (can('my_assets:view')) return <Navigate to="/my-assets" replace />
+    if (can('approvals:view')) return <Navigate to="/approvals" replace />
+    return <Navigate to="/login" replace />
+  }
 
   return (
-    <BrowserRouter>
+    <BrowserRouter basename={routerBasename === '' ? '/' : routerBasename}>
       <Routes>
         {/* Public Login Route */}
         <Route path="/login" element={user ? <Navigate to="/" replace /> : <Login />} />
@@ -55,25 +63,31 @@ function App() {
                   element={
                     roleLoading
                       ? <div className="flex h-screen items-center justify-center"><Spinner /></div>
-                      : role === 'user'
-                        ? <Navigate to="/my-assets" replace />
-                        : (role === 'pm' || role === 'boss')
-                          ? <Navigate to="/approvals" replace />
-                          : <Dashboard />
+                      : defaultLanding()
                   }
                 />
-                <Route path="/my-assets" element={<MyAssets />} />
-                <Route path="/assets" element={<Assets />} />
-                <Route path="/issuance" element={<Issuance />} />
-                <Route path="/stock" element={<StockHistory />} />
-                <Route path="/finance" element={role === 'admin' ? <Finance /> : <Navigate to="/" replace />} />
-                <Route path="/data-management" element={<DataManagement />} />
-                <Route path="/tickets" element={<Tickets />} />
-                <Route path="/approvals" element={<Approvals />} />
-                {role === 'admin' && (
-                  <Route path="/users" element={<Users />} />
-                )}
-                <Route path="/settings" element={<Settings />} />
+                <Route path="/my-assets" element={can('my_assets:view') ? <MyAssets /> : <Navigate to="/" replace />} />
+                <Route
+                  path="/my-requests"
+                  element={can('my_assets:view') && (role === 'user' || role === 'pm' || role === 'support')
+                    ? <MyAssets initialTab="requests" requestOnly />
+                    : <Navigate to="/" replace />}
+                />
+                <Route
+                  path="/my-request-history"
+                  element={can('my_assets:view') && (role === 'user' || role === 'pm' || role === 'support')
+                    ? <MyAssets initialTab="requests" requestOnly historyOnly />
+                    : <Navigate to="/" replace />}
+                />
+                <Route path="/assets" element={can('assets:view') ? <Assets /> : <Navigate to="/" replace />} />
+                <Route path="/issuance" element={can('issuance:manage') ? <Issuance /> : <Navigate to="/" replace />} />
+                <Route path="/stock" element={can('stock:manage') ? <StockHistory /> : <Navigate to="/" replace />} />
+                <Route path="/finance" element={can('finance:view') ? <Finance /> : <Navigate to="/" replace />} />
+                <Route path="/data-management" element={can('data:manage') ? <DataManagement /> : <Navigate to="/" replace />} />
+                <Route path="/tickets" element={can('tickets:view') ? <Tickets /> : <Navigate to="/" replace />} />
+                <Route path="/approvals" element={can('approvals:view') ? <Approvals /> : <Navigate to="/" replace />} />
+                <Route path="/users" element={can('users:manage') ? <Users /> : <Navigate to="/" replace />} />
+                <Route path="/settings" element={can('settings:view') ? <Settings /> : <Navigate to="/" replace />} />
                 <Route path="*" element={<Navigate to="/" replace />} />
               </Routes>
             </AppLayout>
