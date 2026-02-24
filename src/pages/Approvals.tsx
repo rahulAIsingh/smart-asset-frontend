@@ -343,14 +343,14 @@ export function Approvals() {
             </div>
 
             <Tabs value={activeTab} onValueChange={setActiveTab}>
-                <TabsList className="grid w-full grid-cols-3 max-w-xl">
+                <TabsList className="grid w-full grid-cols-3 max-w-xl" data-tour="approvals-tabs">
                     <TabsTrigger value="my-approvals">My Approvals</TabsTrigger>
                     <TabsTrigger value="pending">Pending Queue</TabsTrigger>
                     <TabsTrigger value="audit">Audit Trail</TabsTrigger>
                 </TabsList>
 
                 <TabsContent value="my-approvals" className="space-y-4">
-                    <Card>
+                    <Card data-tour="approvals-assigned">
                         <CardHeader>
                             <CardTitle>Assigned to Me</CardTitle>
                             <CardDescription>Requests where you are PM/Boss approver or IT fulfiller.</CardDescription>
@@ -445,7 +445,7 @@ export function Approvals() {
                 </TabsContent>
 
                 <TabsContent value="audit" className="space-y-4">
-                    <Card>
+                    <Card data-tour="approvals-audit">
                         <CardHeader>
                             <CardTitle>{canSeeAll ? 'End-to-End Request Flow' : 'My Approval History'}</CardTitle>
                             <CardDescription>

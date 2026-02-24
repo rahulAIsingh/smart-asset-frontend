@@ -226,7 +226,7 @@ export function Login() {
             <div className="absolute inset-0 bg-white/18" />
             <Card className="relative z-10 w-full max-w-md sm:max-w-xl bg-white shadow-2xl mt-20 sm:mt-0">
                 <CardHeader className="space-y-1">
-                    <CardTitle className="text-2xl font-bold text-center">Smart Asset Manager</CardTitle>
+                    <CardTitle className="text-2xl font-bold text-center">Asset Management</CardTitle>
                     <CardDescription className="text-center">
                         Choose your login method
                     </CardDescription>
@@ -295,5 +295,6 @@ export function Login() {
         </div>
     )
 }
+
 
 

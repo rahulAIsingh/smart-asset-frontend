@@ -152,7 +152,7 @@ export function Users() {
                 <p className="text-muted-foreground">Manage user access and roles.</p>
             </div>
 
-            <div className="bg-card rounded-2xl border border-border/50 shadow-sm p-4">
+            <div className="bg-card rounded-2xl border border-border/50 shadow-sm p-4" data-tour="users-add-form">
                 <div className="grid grid-cols-1 md:grid-cols-4 gap-3 items-end">
                     <div className="space-y-1">
                         <Label htmlFor="newUserName">Name</Label>
@@ -190,7 +190,7 @@ export function Users() {
                 </div>
             </div>
 
-            <div className="bg-card rounded-2xl border border-border/50 shadow-sm overflow-hidden">
+            <div className="bg-card rounded-2xl border border-border/50 shadow-sm overflow-hidden" data-tour="users-role-actions">
                 <Table>
                     <TableHeader>
                         <TableRow className="bg-muted/30">

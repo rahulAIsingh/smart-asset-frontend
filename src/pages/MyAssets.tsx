@@ -526,7 +526,7 @@ export function MyAssets({ initialTab = 'assets', requestOnly = false, historyOn
     return (
         <div className="space-y-8 max-w-6xl mx-auto">
             <div className="flex flex-col gap-1">
-                <h1 className="text-3xl font-bold tracking-tight">My Assets</h1>
+                <h1 className="text-3xl font-bold tracking-tight" data-tour="my-assets-overview">My Assets</h1>
                 <p className="text-muted-foreground">Manage assigned devices, legacy tickets, and operational requests.</p>
             </div>
 
@@ -547,7 +547,7 @@ export function MyAssets({ initialTab = 'assets', requestOnly = false, historyOn
                                         {activeTab === 'requests' && 'Create and track approval-chain requests.'}
                                     </CardDescription>
                                 </div>
-                                <TabsList className={`grid ${requestOnly ? 'w-[140px] grid-cols-1' : (showRequestsWorkspace ? 'w-[360px] grid-cols-3' : 'w-[240px] grid-cols-2')}`}>
+                                <TabsList className={`grid ${requestOnly ? 'w-[140px] grid-cols-1' : (showRequestsWorkspace ? 'w-[360px] grid-cols-3' : 'w-[240px] grid-cols-2')}`} data-tour="my-assets-tabs">
                                     {!requestOnly && <TabsTrigger value="assets">Assets</TabsTrigger>}
                                     {!requestOnly && <TabsTrigger value="tickets">Tickets</TabsTrigger>}
                                     {showRequestsWorkspace && <TabsTrigger value="requests">Requests</TabsTrigger>}
@@ -589,6 +589,7 @@ export function MyAssets({ initialTab = 'assets', requestOnly = false, historyOn
                                                         variant="outline"
                                                         size="sm"
                                                         className="flex-1 sm:flex-none border-dashed text-destructive hover:text-destructive hover:bg-destructive/10 hover:border-destructive/30"
+                                                        data-tour="my-assets-report-issue"
                                                         onClick={() => {
                                                             setSelectedAsset(asset)
                                                             setIsReportOpen(true)
@@ -658,7 +659,7 @@ export function MyAssets({ initialTab = 'assets', requestOnly = false, historyOn
                             )}
 
                             {showRequestsWorkspace && (
-                                <TabsContent value="requests" className="mt-0 space-y-5">
+                                <TabsContent value="requests" className="mt-0 space-y-5" data-tour="my-requests-workspace">
                                     {!historyOnly && (
                                     <div className="rounded-xl border p-4 bg-muted/10 space-y-4">
                                         <div className="flex items-center justify-between">
@@ -819,12 +820,12 @@ export function MyAssets({ initialTab = 'assets', requestOnly = false, historyOn
                                             </details>
                                         )}
 
-                                        <Button onClick={submitRequest} className="w-full" disabled={savingRequest}>{savingRequest ? 'Submitting...' : 'Submit Request'}</Button>
+                                        <Button onClick={submitRequest} className="w-full" disabled={savingRequest} data-tour="my-requests-submit">{savingRequest ? 'Submitting...' : 'Submit Request'}</Button>
                                     </div>
                                     )}
 
                                     {historyOnly && (
-                                    <div className="rounded-xl border p-4 bg-background space-y-3">
+                                    <div className="rounded-xl border p-4 bg-background space-y-3" data-tour="my-request-history">
                                         <div className="flex items-center justify-between gap-2">
                                             <h3 className="text-sm font-semibold">My Request History</h3>
                                             <div className="flex gap-2">
@@ -881,7 +882,7 @@ export function MyAssets({ initialTab = 'assets', requestOnly = false, historyOn
                                     )}
 
                                     {pendingApprovals.length > 0 && (
-                                        <div className="rounded-xl border p-4 bg-background space-y-3">
+                                        <div className="rounded-xl border p-4 bg-background space-y-3" data-tour="my-requests-pending-actions">
                                             <h3 className="text-sm font-semibold">Pending My Approval / Fulfillment</h3>
                                             <div className="space-y-2">
                                                 {pendingApprovals.map(req => (
@@ -934,7 +935,7 @@ export function MyAssets({ initialTab = 'assets', requestOnly = false, historyOn
                         </CardContent>
                     </Card>
 
-                    <Card className="border-border/50">
+                    <Card className="border-border/50" data-tour="my-assets-support-contact">
                         <CardHeader>
                             <CardTitle className="text-base">Support Contact</CardTitle>
                         </CardHeader>

@@ -306,7 +306,7 @@ export function Issuance() {
 
         <Dialog open={isIssueOpen} onOpenChange={setIsIssueOpen}>
           <DialogTrigger asChild>
-            <Button size="lg" className="rounded-xl shadow-lg shadow-primary/20">
+            <Button size="lg" className="rounded-xl shadow-lg shadow-primary/20" data-tour="issuance-new-button">
               <ArrowLeftRight className="w-4 h-4 mr-2" />
               New Issuance
             </Button>

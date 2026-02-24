@@ -839,7 +839,7 @@ export function Assets() {
     <div className="space-y-6">
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div className="flex flex-col gap-1">
-          <h1 className="text-3xl font-bold tracking-tight">Assets</h1>
+          <h1 className="text-3xl font-bold tracking-tight" data-tour="assets-page-header">Assets</h1>
           <p className="text-muted-foreground">Detailed hardware inventory and tracking.</p>
         </div>
 

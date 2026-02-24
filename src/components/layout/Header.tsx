@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react'
-import { Bell, Search, User, LogOut, Menu } from 'lucide-react'
+import { Bell, Search, User, LogOut, Menu, Compass } from 'lucide-react'
 import { useAuth } from '../../hooks/useAuth'
 import { useUserRole } from '../../hooks/useUserRole'
 import { requestsClient, type AssetRequest } from '../../lib/api/requestsClient'
@@ -14,10 +14,12 @@ import {
 import { Button } from '../ui/button'
 import { Avatar, AvatarFallback, AvatarImage } from '../ui/avatar'
 import { normalizeRole } from '../../lib/rbac'
+import { useOnboarding } from '../../onboarding/useOnboarding'
 
 export function Header({ onMenuClick }: { onMenuClick: () => void }) {
   const { user, logout } = useAuth()
   const { role, isAdmin } = useUserRole()
+  const { restartTour } = useOnboarding()
   const [loadingNotifications, setLoadingNotifications] = useState(false)
   const [requestNotifications, setRequestNotifications] = useState<AssetRequest[]>([])
 
@@ -92,7 +94,7 @@ export function Header({ onMenuClick }: { onMenuClick: () => void }) {
       <div className="flex items-center gap-3">
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <Button variant="ghost" size="icon" className="relative rounded-full">
+            <Button variant="ghost" size="icon" className="relative rounded-full" data-tour="header-notifications-trigger">
               <Bell className="w-5 h-5 text-muted-foreground" />
               {notificationCount > 0 && (
                 <span className="absolute top-2 right-2 w-2 h-2 bg-primary rounded-full border-2 border-background" />
@@ -128,7 +130,7 @@ export function Header({ onMenuClick }: { onMenuClick: () => void }) {
 
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <Button variant="ghost" className="relative h-10 w-10 rounded-full">
+            <Button variant="ghost" className="relative h-10 w-10 rounded-full" data-tour="header-profile-trigger">
               <Avatar className="h-10 w-10 border-2 border-primary/10">
                 <AvatarImage src={user?.photoURL} alt={user?.displayName || 'User'} />
                 <AvatarFallback className="bg-primary/5 text-primary">
@@ -150,6 +152,15 @@ export function Header({ onMenuClick }: { onMenuClick: () => void }) {
               <User className="mr-2 h-4 w-4" />
               <span>Profile</span>
             </DropdownMenuItem>
+            <DropdownMenuItem
+              className="cursor-pointer"
+              data-testid="ftux-restart-header"
+              onClick={() => restartTour()}
+            >
+              <Compass className="mr-2 h-4 w-4" />
+              <span>Restart Tour</span>
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
             <DropdownMenuItem className="cursor-pointer text-destructive focus:text-destructive" onClick={() => logout()}>
               <LogOut className="mr-2 h-4 w-4" />
               <span>Log out</span>

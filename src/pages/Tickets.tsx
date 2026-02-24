@@ -261,12 +261,12 @@ export function Tickets() {
     return (
         <div className="space-y-6">
             <div className="flex flex-col gap-1">
-                <h1 className="text-3xl font-bold tracking-tight">Support Tickets</h1>
+                <h1 className="text-3xl font-bold tracking-tight" data-tour="tickets-page-overview">Support Tickets</h1>
                 <p className="text-muted-foreground">Manage and resolve user reported issues.</p>
             </div>
 
             <div className="bg-card rounded-2xl border border-border/50 shadow-sm overflow-hidden">
-                <div className="p-4 border-b border-border/50 flex flex-col xl:flex-row xl:items-center justify-between gap-3">
+                <div className="p-4 border-b border-border/50 flex flex-col xl:flex-row xl:items-center justify-between gap-3" data-tour="tickets-filters">
                     <div className="flex items-center gap-2 flex-wrap w-full">
                         <Select value={filterStatus} onValueChange={setFilterStatus}>
                             <SelectTrigger className="w-full sm:w-[180px]">
@@ -339,7 +339,9 @@ export function Tickets() {
                             <TableHead>Reported By</TableHead>
                             <TableHead>Status</TableHead>
                             <TableHead>Priority</TableHead>
-                                    <TableHead className="text-right">{canManageTickets ? 'Actions' : 'Details'}</TableHead>
+                                    <TableHead className="text-right" data-tour="tickets-actions-column">
+                                        {canManageTickets ? 'Actions' : 'Details'}
+                                    </TableHead>
                         </TableRow>
                     </TableHeader>
                     <TableBody>
@@ -395,6 +397,7 @@ export function Tickets() {
                                         <Button
                                             variant="ghost"
                                             size="sm"
+                                            data-tour="tickets-manage-action"
                                             onClick={() => {
                                                 setSelectedTicket(ticket)
                                                 setResolutionNote(ticket.resolutionNote || '')

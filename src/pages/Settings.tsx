@@ -5,6 +5,7 @@ import {
   Shield,
   Globe,
   Mail,
+  Compass,
 } from 'lucide-react'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card'
 import { Switch } from '../components/ui/switch'
@@ -12,9 +13,11 @@ import { Button } from '../components/ui/button'
 import { useAuth } from '../hooks/useAuth'
 import { dataClient } from '../lib/dataClient'
 import { toast } from 'sonner'
+import { useOnboarding } from '../onboarding/useOnboarding'
 
 export function Settings() {
   const { user } = useAuth()
+  const { restartTour } = useOnboarding()
   const [activeTab, setActiveTab] = useState('profile')
   const [testEmailTo, setTestEmailTo] = useState((user?.email || '').trim())
   const [testingEmail, setTestingEmail] = useState(false)
@@ -121,6 +124,24 @@ export function Settings() {
                     <p className="text-xs text-muted-foreground break-all">{emailTestResult}</p>
                   ) : null}
                 </div>
+              </CardContent>
+            </Card>
+
+            <Card className="border-border/50" data-tour="settings-onboarding-card">
+              <CardHeader>
+                <CardTitle>Onboarding</CardTitle>
+                <CardDescription>Replay the guided walkthrough for your current role.</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <Button
+                  type="button"
+                  variant="outline"
+                  data-testid="ftux-restart-settings"
+                  onClick={() => restartTour()}
+                >
+                  <Compass className="w-4 h-4 mr-2" />
+                  Restart Tour
+                </Button>
               </CardContent>
             </Card>
           </>

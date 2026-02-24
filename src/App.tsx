@@ -4,6 +4,7 @@ import { useUserRole } from './hooks/useUserRole'
 import { AppLayout } from './components/layout/AppLayout'
 import { Toaster } from './components/ui/sonner'
 import { Spinner } from './components/ui/spinner'
+import { OnboardingProvider } from './onboarding/OnboardingProvider'
 
 // Pages
 import { Dashboard } from './pages/Dashboard'
@@ -56,41 +57,48 @@ function App() {
         {/* Protected Routes */}
         <Route path="/*" element={
           <RequireAuth>
-            <AppLayout>
-              <Routes>
-                <Route
-                  path="/"
-                  element={
-                    roleLoading
-                      ? <div className="flex h-screen items-center justify-center"><Spinner /></div>
-                      : defaultLanding()
-                  }
-                />
-                <Route path="/my-assets" element={can('my_assets:view') ? <MyAssets /> : <Navigate to="/" replace />} />
-                <Route
-                  path="/my-requests"
-                  element={can('my_assets:view') && (role === 'user' || role === 'pm' || role === 'support')
-                    ? <MyAssets initialTab="requests" requestOnly />
-                    : <Navigate to="/" replace />}
-                />
-                <Route
-                  path="/my-request-history"
-                  element={can('my_assets:view') && (role === 'user' || role === 'pm' || role === 'support')
-                    ? <MyAssets initialTab="requests" requestOnly historyOnly />
-                    : <Navigate to="/" replace />}
-                />
-                <Route path="/assets" element={can('assets:view') ? <Assets /> : <Navigate to="/" replace />} />
-                <Route path="/issuance" element={can('issuance:manage') ? <Issuance /> : <Navigate to="/" replace />} />
-                <Route path="/stock" element={can('stock:manage') ? <StockHistory /> : <Navigate to="/" replace />} />
-                <Route path="/finance" element={can('finance:view') ? <Finance /> : <Navigate to="/" replace />} />
-                <Route path="/data-management" element={can('data:manage') ? <DataManagement /> : <Navigate to="/" replace />} />
-                <Route path="/tickets" element={can('tickets:view') ? <Tickets /> : <Navigate to="/" replace />} />
-                <Route path="/approvals" element={can('approvals:view') ? <Approvals /> : <Navigate to="/" replace />} />
-                <Route path="/users" element={can('users:manage') ? <Users /> : <Navigate to="/" replace />} />
-                <Route path="/settings" element={can('settings:view') ? <Settings /> : <Navigate to="/" replace />} />
-                <Route path="*" element={<Navigate to="/" replace />} />
-              </Routes>
-            </AppLayout>
+            <OnboardingProvider
+              isAuthenticated={!!user}
+              userEmail={user?.email}
+              role={role}
+              roleLoading={roleLoading}
+            >
+              <AppLayout>
+                <Routes>
+                  <Route
+                    path="/"
+                    element={
+                      roleLoading
+                        ? <div className="flex h-screen items-center justify-center"><Spinner /></div>
+                        : defaultLanding()
+                    }
+                  />
+                  <Route path="/my-assets" element={can('my_assets:view') ? <MyAssets /> : <Navigate to="/" replace />} />
+                  <Route
+                    path="/my-requests"
+                    element={can('my_assets:view') && (role === 'user' || role === 'pm' || role === 'support')
+                      ? <MyAssets initialTab="requests" requestOnly />
+                      : <Navigate to="/" replace />}
+                  />
+                  <Route
+                    path="/my-request-history"
+                    element={can('my_assets:view') && (role === 'user' || role === 'pm' || role === 'support')
+                      ? <MyAssets initialTab="requests" requestOnly historyOnly />
+                      : <Navigate to="/" replace />}
+                  />
+                  <Route path="/assets" element={can('assets:view') ? <Assets /> : <Navigate to="/" replace />} />
+                  <Route path="/issuance" element={can('issuance:manage') ? <Issuance /> : <Navigate to="/" replace />} />
+                  <Route path="/stock" element={can('stock:manage') ? <StockHistory /> : <Navigate to="/" replace />} />
+                  <Route path="/finance" element={can('finance:view') ? <Finance /> : <Navigate to="/" replace />} />
+                  <Route path="/data-management" element={can('data:manage') ? <DataManagement /> : <Navigate to="/" replace />} />
+                  <Route path="/tickets" element={can('tickets:view') ? <Tickets /> : <Navigate to="/" replace />} />
+                  <Route path="/approvals" element={can('approvals:view') ? <Approvals /> : <Navigate to="/" replace />} />
+                  <Route path="/users" element={can('users:manage') ? <Users /> : <Navigate to="/" replace />} />
+                  <Route path="/settings" element={can('settings:view') ? <Settings /> : <Navigate to="/" replace />} />
+                  <Route path="*" element={<Navigate to="/" replace />} />
+                </Routes>
+              </AppLayout>
+            </OnboardingProvider>
           </RequireAuth>
         } />
       </Routes>

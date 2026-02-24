@@ -63,7 +63,7 @@ export function Sidebar({ isOpen, onClose }: { isOpen: boolean; onClose: () => v
               <div className="w-8 h-8 bg-primary rounded-lg flex items-center justify-center">
                 <Package className="w-5 h-5 text-primary-foreground" />
               </div>
-              <span className="font-bold text-xl tracking-tight text-sidebar-foreground">AssetManager</span>
+              <span className="font-bold text-xl tracking-tight text-sidebar-foreground">Asset Management</span>
             </div>
             <button className="lg:hidden p-2 hover:bg-sidebar-accent rounded-md" onClick={onClose}>
               <X className="w-5 h-5" />
@@ -77,12 +77,14 @@ export function Sidebar({ isOpen, onClose }: { isOpen: boolean; onClose: () => v
               .map((item) => {
                 const isActive = location.pathname === item.path
                 const navTestId = item.path === '/' ? 'sidebar-link-root' : `sidebar-link-${item.path.slice(1).replace(/\//g, '-')}`
+                const navTourId = item.path === '/' ? 'nav-root' : `nav-${item.path.slice(1).replace(/\//g, '-')}`
                 return (
                   <Link
                     key={item.path}
                     to={item.path}
                     onClick={() => onClose()}
                     data-testid={navTestId}
+                    data-tour={navTourId}
                     className={cn(
                       "flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors",
                       isActive
@@ -121,4 +123,5 @@ export function Sidebar({ isOpen, onClose }: { isOpen: boolean; onClose: () => v
     </>
   )
 }
+
 

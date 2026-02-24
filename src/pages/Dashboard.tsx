@@ -363,11 +363,18 @@ export function Dashboard() {
 
   return (
     <div className="space-y-3">
-      <div className="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-8 gap-3">
+      <div className="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-8 gap-3" data-tour="dashboard-overview">
         <MetricCard label="Total" value={stats.total} icon={<Layers className="w-4 h-4 text-slate-600" />} tone="slate" />
         <MetricCard label="Available" value={stats.available} icon={<CheckCircle2 className="w-4 h-4 text-emerald-600" />} tone="emerald" />
         <MetricCard label="Issued" value={stats.issued} icon={<Laptop className="w-4 h-4 text-cyan-600" />} tone="cyan" />
-        <MetricCard testId="dashboard-open-tickets-card" label="Open Tickets" value={stats.openTickets} icon={<AlertCircle className="w-4 h-4 text-amber-600" />} tone="amber" />
+        <MetricCard
+          testId="dashboard-open-tickets-card"
+          tourId="dashboard-open-tickets"
+          label="Open Tickets"
+          value={stats.openTickets}
+          icon={<AlertCircle className="w-4 h-4 text-amber-600" />}
+          tone="amber"
+        />
         <MetricCard label="Repair Risk" value={stats.repairTickets} icon={<Wrench className="w-4 h-4 text-rose-600" />} tone="rose" />
         <MetricCard label="Pending IT" value={stats.pendingIt} icon={<ClipboardList className="w-4 h-4 text-indigo-600" />} tone="indigo" />
         <MetricCard label="Urgent Req" value={stats.urgentRequests} icon={<Activity className="w-4 h-4 text-red-600" />} tone="red" />
@@ -647,7 +654,7 @@ export function Dashboard() {
           </CardContent>
         </Card>
 
-        <Card className="border-border/50">
+        <Card className="border-border/50" data-tour="dashboard-recent-issuance">
           <CardHeader className="py-3 flex flex-row items-center justify-between">
             <CardTitle className="text-sm font-semibold" data-testid="dashboard-recent-issuance-activity">Recent Issuance Activity</CardTitle>
             <button onClick={() => navigate('/issuance')} className="text-xs text-primary hover:underline">Open</button>
@@ -782,12 +789,14 @@ export function Dashboard() {
 
 function MetricCard({
   testId,
+  tourId,
   label,
   value,
   icon,
   tone
 }: {
   testId?: string
+  tourId?: string
   label: string
   value: string | number
   icon: React.ReactNode
@@ -805,7 +814,7 @@ function MetricCard({
   }[tone]
 
   return (
-    <div className={`rounded-xl border p-2.5 ${toneClass}`} data-testid={testId}>
+    <div className={`rounded-xl border p-2.5 ${toneClass}`} data-testid={testId} data-tour={tourId}>
       <div className="flex items-center justify-between">
         <span className="text-[11px] text-muted-foreground">{label}</span>
         {icon}
